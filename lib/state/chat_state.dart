@@ -144,9 +144,7 @@ class ChatNotifier extends ChangeNotifier {
   void setAiFirstMessage(bool v) => _aiFirstMessage = v;
 
   /// Set whether the provider uses thinking mode.
-  void setThinkingEnabled(bool v) {
-    // Applied on next sendMessage
-  }
+  void setThinkingEnabled(bool v) => _thinkingEnabled = v;
 
   /// Set whether tool calling (function calling) is enabled.
   void setToolsEnabled(bool v) => _toolsEnabled = v;
