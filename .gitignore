@@ -1,0 +1,50 @@
+# === Claude ===
+.claude/
+*.skill
+CLAUDE.md
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === Flutter / Dart build outputs ===
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+android/.kotlin/
+*.iml
+.idea/
+.vscode/
+
+# === Embedded Dart SDK (not part of project) ===
+Dart/
+
+# === Android build outputs ===
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# === iOS ===
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+
+# === Local docs ===
+文档/
+
+# === Windows build outputs ===
+windows/flutter/ephemeral/
+
+# === Misc ===
+*.log
+*.pyc
+coverage/
