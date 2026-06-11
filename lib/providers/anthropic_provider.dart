@@ -198,6 +198,7 @@ class AnthropicProvider implements AiProvider {
   Map<String, dynamic> _buildBody(
     List<Map<String, dynamic>> messages, {
     required bool stream,
+    String? systemPrompt,
   }) {
     final body = <String, dynamic>{
       'model': _settings.model,
@@ -207,8 +208,9 @@ class AnthropicProvider implements AiProvider {
     };
 
     // system is a top-level field in Anthropic API, not a message
-    // (we don't embed the system prompt here — it's embedded in the
-    //  first user message by the caller, so we just honour that)
+    if (systemPrompt != null && systemPrompt.isNotEmpty) {
+      body['system'] = systemPrompt;
+    }
 
     if (_includeTools && _toolRunner != null) {
       body['tools'] = _anthropicTools;
@@ -229,7 +231,8 @@ class AnthropicProvider implements AiProvider {
   Future<AiTurnResult> sendTurn(AiTurnRequest request) async {
     final url = _base.resolve('/v1/messages');
     final messages = _buildMessages(request, toolResults: request.toolResults);
-    final body = _buildBody(messages, stream: false);
+    final body = _buildBody(messages, stream: false,
+        systemPrompt: request.systemPrompt);
 
     try {
       final response =
@@ -298,7 +301,8 @@ class AnthropicProvider implements AiProvider {
   Stream<AiStreamChunk> sendTurnStream(AiTurnRequest request) async* {
     final url = _base.resolve('/v1/messages');
     final messages = _buildMessages(request, toolResults: request.toolResults);
-    final body = _buildBody(messages, stream: true);
+    final body = _buildBody(messages, stream: true,
+        systemPrompt: request.systemPrompt);
 
     final streamedResponse = await _httpClient.send(
       http.Request('POST', url)

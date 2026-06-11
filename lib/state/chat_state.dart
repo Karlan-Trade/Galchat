@@ -82,7 +82,7 @@ class ChatNotifier extends ChangeNotifier {
   StreamSubscription<AiStreamChunk>? _streamSubscription;
   String? _exampleDialogue;
   String? _openingPrompt;
-  String _replyStylePrompt = '请以初雪的身份自然地回复主人的消息喵~';
+  String _replyStylePrompt = '';
   bool _includeExampleDialogue = true;
   bool _aiFirstMessage = true;
   bool _thinkingEnabled = true;
@@ -194,14 +194,14 @@ class ChatNotifier extends ChangeNotifier {
 
       final provider = createAiProvider(apiKey: apiKey, settings: aiSettings)
         ..setThinkingEnabled(_thinkingEnabled);
-      final systemPrompt = _buildSystemPrompt();
+      // Opening message has no tool-call loop; exclude tool instructions from
+      // the system prompt to prevent the AI from "hallucinating" tool calls as text.
+      final systemPrompt = _buildSystemPrompt(includeTools: false);
 
       final request = AiTurnRequest(
         systemPrompt: systemPrompt,
         history: [],
-        userMessage: (_openingPrompt != null && _openingPrompt!.isNotEmpty)
-            ? _openingPrompt!
-            : '请开始我们的故事吧喵~（作为初雪，主动发送第一条消息。包括完整的场景描写、人物动作、对话，以及A/B/C/D四个选项）',
+        userMessage: _openingPrompt ?? '',
         currentState: {},
       );
 
@@ -630,12 +630,12 @@ class ChatNotifier extends ChangeNotifier {
     }
   }
 
-  String _buildSystemPrompt() {
+  String _buildSystemPrompt({bool includeTools = true}) {
     final charPrompt = _character?.systemPrompt ?? '';
     final dialogue = (_includeExampleDialogue && _exampleDialogue != null && _exampleDialogue!.isNotEmpty)
         ? '\n## 示例对话（请严格遵循此格式）\n\n$_exampleDialogue\n'
         : '';
-    final tools = _toolsEnabled ? toolInstructions : '';
+    final tools = (_toolsEnabled && includeTools) ? toolInstructions : '';
     return '''$charPrompt
 $tools
 $dialogue
