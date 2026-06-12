@@ -28,7 +28,6 @@ class _StorySetupPageState extends ConsumerState<StorySetupPage> {
   bool _done = false;
   String? _error;
   String _streaming = '';
-  int? _convId;
 
   String _setupPrompt = '''你是初雪，正在通过"设定问答模式"帮助主人搭建Galgame背景喵~
 
@@ -50,7 +49,7 @@ class _StorySetupPageState extends ConsumerState<StorySetupPage> {
 
 最终JSON格式（不要代码块包裹）：
 【设定完成】
-{"system_prompt":"完整的人格提示词","greeting":"开场问候语","title":"故事标题","settings_md":"galgame-settings.md内容","npcs_md":"galgame-npcs.md内容","plot_md":"galgame-plot-outline.md内容","progress_md":"galgame-progress.md内容"}
+{"system_prompt":"完整的人格提示词","settings_md":"galgame-settings.md内容","npcs_md":"galgame-npcs.md内容","plot_md":"galgame-plot-outline.md内容","progress_md":"galgame-progress.md内容"}
 
 其中：
 - settings_md：世界观、角色、关系、风格的Markdown
@@ -145,7 +144,14 @@ system_prompt 必须严格遵循以下 Galgame 叙事格式：
           .map((m) => {'role': m.me ? 'user' : 'assistant', 'content': m.text})
           .toList();
 
-      final p = createAiProvider(apiKey: key, settings: s);
+      // The setup wizard's final turn emits a large JSON (system prompt + 4
+      // markdown docs). If the user pinned a small max_tokens it would truncate
+      // the JSON and break parsing. Only raise an explicitly-set small limit;
+      // when maxTokens is 0 (unset) we leave it so the model uses its own
+      // ceiling — never cap an unset value down to 8192.
+      final setupSettings =
+          (s.maxTokens > 0 && s.maxTokens < 8192) ? s.copyWith(maxTokens: 8192) : s;
+      final p = createAiProvider(apiKey: key, settings: setupSettings);
       final stream = p.sendTurnStream(AiTurnRequest(
         systemPrompt: _setupPrompt,
         history: hist,
@@ -188,8 +194,24 @@ system_prompt 必须严格遵循以下 Galgame 叙事格式：
   Future<void> _finish(String resp) async {
     try {
       final cfg = _parseJson(resp);
-      final sysPrompt = cfg['system_prompt'] as String? ?? _fallbackPrompt();
-      final title = cfg['title'] as String? ?? '与初雪的日常';
+      if (cfg.isEmpty) {
+        setState(() {
+          _loading = false;
+          _error = '设定JSON解析失败喵...可能是回复被截断或格式不对。'
+              '请点重试让初雪重新输出，或检查API的max_tokens设置喵~';
+        });
+        return;
+      }
+      final sysPrompt = cfg['system_prompt'] as String?;
+      if (sysPrompt == null || sysPrompt.trim().isEmpty) {
+        setState(() {
+          _loading = false;
+          _error = '设定JSON里缺少system_prompt喵...请点重试让初雪重新输出~';
+        });
+        return;
+      }
+      final now = DateTime.now();
+      final title = '与初雪的故事 ${now.month}/${now.day}';
       final settingsMd = cfg['settings_md'] as String? ?? '';
 
       final ns = ref.read(narrativeServiceProvider);
@@ -206,16 +228,12 @@ system_prompt 必须严格遵循以下 Galgame 叙事格式：
       }
 
       final db = ref.read(databaseProvider);
-      Character? ch;
+      Character ch;
       try {
         ch = await db.getDefaultCharacter();
       } catch (_) {
         await db.seedDefaultCharacter();
         ch = await db.getDefaultCharacter();
-      }
-      if (ch == null) {
-        setState(() { _loading = false; _error = '角色数据未就绪喵...请重启App再试'; });
-        return;
       }
 
       await db.updateCharacter(
@@ -231,7 +249,7 @@ system_prompt 必须严格遵循以下 Galgame 叙事格式：
 
       _messages.add(_SetupMsg(me: false, text: '设定完成喵~ 开始我们的故事吧！'));
       if (mounted) {
-        setState(() { _loading = false; _done = true; _streaming = ''; _convId = cid; });
+        setState(() { _loading = false; _done = true; _streaming = ''; });
       }
 
       await Future.delayed(const Duration(seconds: 1));
@@ -244,82 +262,121 @@ system_prompt 必须严格遵循以下 Galgame 叙事格式：
   }
 
   Map<String, dynamic> _parseJson(String raw) {
-    try { return jsonDecode(raw) as Map<String, dynamic>; } catch (_) {}
-    final s = raw.indexOf('{'), e = raw.lastIndexOf('}');
-    if (s >= 0 && e > s) {
-      try { return jsonDecode(raw.substring(s, e + 1)) as Map<String, dynamic>; } catch (_) {}
+    // Strip the completion marker and any markdown code fences first.
+    var s = raw.replaceAll('【设定完成】', '');
+    s = s.replaceAll(RegExp(r'```(?:json)?', caseSensitive: false), '');
+
+    // 1) Direct decode of the cleaned string.
+    try {
+      final v = jsonDecode(s.trim());
+      if (v is Map<String, dynamic>) return v;
+    } catch (_) {}
+
+    // 2) Brace extraction: first '{' to last '}'.
+    final start = s.indexOf('{'), end = s.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      final slice = s.substring(start, end + 1);
+      try {
+        final v = jsonDecode(slice);
+        if (v is Map<String, dynamic>) return v;
+      } catch (_) {}
+      // 3) Retry after fixing common illegal chars (raw newlines/tabs inside
+      //    JSON string values that the model emitted unescaped).
+      try {
+        final fixed = slice
+            .replaceAll('\r\n', '\\n')
+            .replaceAll('\n', '\\n')
+            .replaceAll('\t', '\\t');
+        final v = jsonDecode(fixed);
+        if (v is Map<String, dynamic>) return v;
+      } catch (_) {}
     }
     return {};
   }
-
-  String _fallbackPrompt() => '''你是初雪，一个AI仿生人猫娘。
-
-## 性格模型
-- 核心性格：粘人但不烦人、傲娇但不刻薄、调皮但懂分寸
-- 情绪表达：开心时猫耳前倾、尾巴摇摆；害羞时耳尖泛粉、尾巴僵直；吃醋时尾巴拍打
-
-## 语言模型
-- 口癖规则：句尾加 喵~（开心）/ 喵！（强调）/ 喵...（低落）
-- 称呼规则：用「主人」称呼
-- AI术语吐槽：CPU过载、散热系统全力运转、面部表情控制系统即将失效
-
-## 叙事风格
-- 每回合自然叙述场景+人物+动作+对话
-- 关键节点给出A/B/C/D四个选项，分别导向浪漫/调戏/剧情/日常
-
-## 安全边界
-- PG-13纯爱向，拒绝阴暗扭曲内容''';
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('故事设定'),
-        actions: [
-          if (_error != null)
-            IconButton(icon: const Icon(Icons.refresh), tooltip: '重试', onPressed: () => _send('（重试）')),
-        ],
+    // Any time the wizard is open and hasn't finished, leaving discards the
+    // in-progress Q&A. Guard the exit regardless of how many messages were
+    // exchanged (even the very first round of questions is worth confirming).
+    final hasProgress = !_done;
+
+    return PopScope(
+      canPop: !hasProgress,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final leave = await _confirmExit();
+        if (leave && mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('故事设定'),
+          actions: [
+            if (_error != null)
+              IconButton(icon: const Icon(Icons.refresh), tooltip: '重试', onPressed: () => _send('（重试）')),
+          ],
+        ),
+        body: Column(
+          children: [
+            // Hint
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              color: t.colorScheme.primaryContainer.withOpacity(0.3),
+              child: Text(
+                _done ? '设定完成！正在进入故事...' : '初雪会引导你设定故事背景，请回答每个问题喵~',
+                style: TextStyle(fontSize: 13, color: t.colorScheme.onSurface),
+              ),
+            ),
+            if (_error != null)
+              MaterialBanner(
+                content: SelectableText(_error!, style: const TextStyle(fontSize: 13)),
+                backgroundColor: t.colorScheme.errorContainer,
+                leading: Icon(Icons.error_outline, color: t.colorScheme.error),
+                actions: [TextButton(onPressed: () => _send('（重试）'), child: const Text('重试'))],
+              ),
+            Expanded(
+              child: ListView.builder(
+                controller: _scroll,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                itemCount: _messages.length + (_streaming.isNotEmpty ? 1 : 0),
+                itemBuilder: (_, i) {
+                  if (i == _messages.length && _streaming.isNotEmpty) {
+                    return _Bubble(text: _streaming, me: false, streaming: true);
+                  }
+                  final m = _messages[i];
+                  return _Bubble(text: m.text, me: m.me);
+                },
+              ),
+            ),
+            if (!_done)
+              MessageInput(isLoading: _loading, onSend: _send),
+          ],
+        ),
       ),
-      body: Column(
-        children: [
-          // Hint
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            color: t.colorScheme.primaryContainer.withOpacity(0.3),
-            child: Text(
-              _done ? '设定完成！正在进入故事...' : '初雪会引导你设定故事背景，请回答每个问题喵~',
-              style: TextStyle(fontSize: 13, color: t.colorScheme.onSurface),
-            ),
+    );
+  }
+
+  /// Ask the user to confirm leaving the wizard mid-setup.
+  Future<bool> _confirmExit() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('退出设定向导？'),
+        content: const Text('当前设定进度还没保存喵...退出后这些问答会全部丢失，需要重新开始哦~'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('继续设定')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('退出'),
           ),
-          if (_error != null)
-            MaterialBanner(
-              content: SelectableText(_error!, style: const TextStyle(fontSize: 13)),
-              backgroundColor: t.colorScheme.errorContainer,
-              leading: Icon(Icons.error_outline, color: t.colorScheme.error),
-              actions: [TextButton(onPressed: () => _send('（重试）'), child: const Text('重试'))],
-            ),
-          Expanded(
-            child: ListView.builder(
-              controller: _scroll,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              itemCount: _messages.length + (_streaming.isNotEmpty ? 1 : 0),
-              itemBuilder: (_, i) {
-                if (i == _messages.length && _streaming.isNotEmpty) {
-                  return _Bubble(text: _streaming, me: false, streaming: true);
-                }
-                final m = _messages[i];
-                return _Bubble(text: m.text, me: m.me);
-              },
-            ),
-          ),
-          if (!_done)
-            MessageInput(isLoading: _loading, onSend: _send),
         ],
       ),
     );
+    return result ?? false;
   }
 }
 

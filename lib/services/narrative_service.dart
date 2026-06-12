@@ -109,7 +109,7 @@ class NarrativeService {
 
 最终JSON格式（不要代码块包裹）：
 【设定完成】
-{"system_prompt":"完整的人格提示词","greeting":"开场问候语","title":"故事标题","settings_md":"galgame-settings.md内容","npcs_md":"galgame-npcs.md内容","plot_md":"galgame-plot-outline.md内容","progress_md":"galgame-progress.md内容"}
+{"system_prompt":"完整的人格提示词","settings_md":"galgame-settings.md内容","npcs_md":"galgame-npcs.md内容","plot_md":"galgame-plot-outline.md内容","progress_md":"galgame-progress.md内容"}
 
 其中：
 - settings_md：世界观、角色、关系、风格的Markdown

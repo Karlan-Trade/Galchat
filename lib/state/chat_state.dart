@@ -190,41 +190,166 @@ class ChatNotifier extends ChangeNotifier {
         return;
       }
 
-      if (_character == null) _character = await _db.getCharacterById(current.characterId);
+      _character ??= await _db.getCharacterById(current.characterId);
 
       final provider = createAiProvider(apiKey: apiKey, settings: aiSettings)
         ..setThinkingEnabled(_thinkingEnabled);
-      // Opening message has no tool-call loop; exclude tool instructions from
-      // the system prompt to prevent the AI from "hallucinating" tool calls as text.
-      final systemPrompt = _buildSystemPrompt(includeTools: false);
+      // Sync tool calling to the tools toggle (same as a normal turn).
+      if (_toolRunner != null && _toolsEnabled) provider.enableTools(_toolRunner!);
 
-      final request = AiTurnRequest(
+      // includeTools defaults to true; _buildSystemPrompt only injects tool
+      // instructions when _toolsEnabled is also on, so this stays in sync.
+      final systemPrompt = _buildSystemPrompt();
+
+      // Opening message streams just like a normal turn, with the same
+      // tool-call loop. History is empty; the opening prompt is the trigger.
+      await _streamTurnWithTools(
+        conversationId: current.conversationId,
         systemPrompt: systemPrompt,
-        history: [],
+        allHistory: const [],
         userMessage: _openingPrompt ?? '',
-        currentState: {},
+        provider: provider,
+        emptyFallbackText: '喵~ 初次见面，请多关照！',
       );
-
-      final result = await provider.sendTurn(request);
-      final text = result.messages.map((m) => m.text).join('\n');
-      final effectiveText = text.isNotEmpty ? text : result.rawText ?? '喵~ 初次见面，请多关照！';
-
-      await _db.insertMessage(MessagesCompanion(
-        conversationId: Value(current.conversationId),
-        role: const Value('assistant'),
-        speaker: const Value('初雪'),
-        content: Value(effectiveText),
-        createdAt: Value(DateTime.now()),
-      ));
-
-      await _db.touchConversation(current.conversationId);
-      final updatedMessages = await _db.getMessagesByConversation(current.conversationId);
-
-      _state = _state!.copyWith(messages: updatedMessages, isLoading: false);
-      notifyListeners();
     } catch (e) {
       _state = _state!.copyWith(isLoading: false, errorMessage: '初雪还在准备喵... $e');
       notifyListeners();
+    }
+  }
+
+  /// Stream one AI turn with a tool-call loop. Shared by the opening message
+  /// and normal user turns. Streams text/reasoning deltas, detects tool calls,
+  /// executes them via [_toolRunner], and re-streams up to 5 times. Falls back
+  /// to a non-streaming call on timeout or empty output.
+  Future<void> _streamTurnWithTools({
+    required int conversationId,
+    required String systemPrompt,
+    required List<Map<String, String>> allHistory,
+    required String userMessage,
+    required AiProvider provider,
+    String emptyFallbackText = '',
+  }) async {
+    final fullContent = StringBuffer();
+    final reasoningContent = StringBuffer();
+    bool streamingCompleted = false;
+    bool hasStreamed = false;
+    List<ToolCallRequest> pendingToolCalls = [];
+
+    final baseRequest = AiTurnRequest(
+      systemPrompt: systemPrompt,
+      history: allHistory,
+      userMessage: userMessage,
+      currentState: {},
+    );
+
+    try {
+      var loopHistory = List<Map<String, String>>.from(allHistory);
+      var loopUserMessage = userMessage;
+      List<Map<String, dynamic>>? loopToolResults;
+      const maxToolLoops = 5;
+      var toolLoopCount = 0;
+
+      while (toolLoopCount < maxToolLoops) {
+        toolLoopCount++;
+        streamingCompleted = false;
+        fullContent.clear();
+        reasoningContent.clear();
+        hasStreamed = false;
+        pendingToolCalls = [];
+
+        final request = AiTurnRequest(
+          systemPrompt: systemPrompt,
+          history: loopHistory,
+          userMessage: loopUserMessage,
+          currentState: {},
+          toolResults: loopToolResults,
+        );
+
+        // Only update streamingText on second+ loop iteration
+        if (toolLoopCount > 1) {
+          _state = _state!.copyWith(streamingText: '（初雪正在查阅文件喵...）');
+          notifyListeners();
+        }
+
+        final stream = provider.sendTurnStream(request);
+        await for (final chunk in stream.timeout(const Duration(seconds: 30))) {
+          if (chunk.isDone) {
+            streamingCompleted = true;
+            break;
+          }
+          if (chunk.toolCalls.isNotEmpty) {
+            pendingToolCalls = chunk.toolCalls;
+            continue;
+          }
+          if (chunk.reasoningDelta.isNotEmpty) {
+            reasoningContent.write(chunk.reasoningDelta);
+            if (_state!.isLoading) {
+              _state = _state!.copyWith(streamingReasoning: reasoningContent.toString());
+              notifyListeners();
+            }
+          }
+          if (chunk.textDelta.isNotEmpty) {
+            hasStreamed = true;
+            fullContent.write(chunk.textDelta);
+            if (_state!.isLoading) {
+              _state = _state!.copyWith(
+                streamingText: fullContent.toString(),
+                streamingReasoning: reasoningContent.toString(),
+              );
+              notifyListeners();
+            }
+          }
+        }
+
+        if (!streamingCompleted) break; // timeout
+
+        // If tool calls were detected, execute them all and loop
+        if (pendingToolCalls.isNotEmpty && _toolRunner != null) {
+          final toolResultMessages = <Map<String, dynamic>>[];
+
+          toolResultMessages.add({
+            'role': 'assistant',
+            'content': null,
+            'tool_calls': pendingToolCalls.map((tc) => {
+              'id': tc.id,
+              'type': 'function',
+              'function': {
+                'name': tc.name,
+                'arguments': json.encode(tc.arguments),
+              },
+            }).toList(),
+          });
+
+          for (final tc in pendingToolCalls) {
+            final result = await _toolRunner!.run(tc.name, tc.arguments);
+            toolResultMessages.add({
+              'role': 'tool',
+              'tool_call_id': tc.id,
+              'content': result,
+            });
+          }
+
+          loopHistory = List<Map<String, String>>.from(allHistory);
+          loopUserMessage = userMessage;
+          loopToolResults = toolResultMessages;
+          continue; // re-loop with tool results
+        }
+
+        break; // no tool call → normal response
+      }
+
+      if (hasStreamed && fullContent.isNotEmpty) {
+        _state = _state!.copyWith(lastReasoning: reasoningContent.toString());
+        notifyListeners();
+        await _processAiResponse(conversationId, fullContent.toString(), provider, baseRequest);
+      } else if (!hasStreamed && fullContent.isEmpty) {
+        await _fallbackNonStreaming(conversationId, provider, baseRequest, emptyFallbackText);
+      }
+    } catch (e) {
+      _streamSubscription = null;
+      if (!streamingCompleted) {
+        await _fallbackNonStreaming(conversationId, provider, baseRequest, fullContent.toString());
+      }
     }
   }
 
@@ -294,141 +419,23 @@ class ChatNotifier extends ChangeNotifier {
       _state = _state!.copyWith(messages: refreshedMessages);
       notifyListeners();
 
-      // ===== TOOL-CALL-AWARE STREAMING =====
+      // Build history for the AI call. Exclude the user message we just saved —
+      // it's passed separately as userMessage.
       final allHistory = <Map<String, String>>[];
       for (final m in contextMessages) {
         allHistory.add({'role': m.role, 'content': m.content});
       }
-      // Remove the last entry (user message we just saved — will re-add below)
       if (allHistory.isNotEmpty && allHistory.last['role'] == 'user') {
         allHistory.removeLast();
       }
 
-      // Tool call loop: stream → detect tool calls → execute → re-stream
-      final fullContent = StringBuffer();
-      final reasoningContent = StringBuffer();
-      bool streamingCompleted = false;
-      bool hasStreamed = false;
-      List<ToolCallRequest> pendingToolCalls = [];
-
-      try {
-        // Snapshot history for tool call loop
-        var loopHistory = List<Map<String, String>>.from(allHistory);
-        var loopUserMessage = text;
-        List<Map<String, dynamic>>? loopToolResults;
-        const maxToolLoops = 5;
-        var toolLoopCount = 0;
-
-        while (toolLoopCount < maxToolLoops) {
-          toolLoopCount++;
-          streamingCompleted = false;
-          fullContent.clear();
-          reasoningContent.clear();
-          hasStreamed = false;
-          pendingToolCalls = [];
-
-          final request = AiTurnRequest(
-            systemPrompt: systemPrompt,
-            history: loopHistory,
-            userMessage: loopUserMessage,
-            currentState: {},
-            toolResults: loopToolResults,
-          );
-
-          // Only update streamingText on first loop iteration
-          if (toolLoopCount > 1) {
-            _state = _state!.copyWith(streamingText: '（初雪正在查阅文件喵...）');
-            notifyListeners();
-          }
-
-          final stream = provider.sendTurnStream(request);
-          await for (final chunk in stream.timeout(const Duration(seconds: 30))) {
-            if (chunk.isDone) {
-              streamingCompleted = true;
-              break;
-            }
-            if (chunk.toolCalls.isNotEmpty) {
-              pendingToolCalls = chunk.toolCalls;
-              continue;
-            }
-            if (chunk.reasoningDelta.isNotEmpty) {
-              reasoningContent.write(chunk.reasoningDelta);
-              if (_state!.isLoading) {
-                _state = _state!.copyWith(streamingReasoning: reasoningContent.toString());
-                notifyListeners();
-              }
-            }
-            if (chunk.textDelta.isNotEmpty) {
-              hasStreamed = true;
-              fullContent.write(chunk.textDelta);
-              if (_state!.isLoading) {
-                _state = _state!.copyWith(
-                  streamingText: fullContent.toString(),
-                  streamingReasoning: reasoningContent.toString(),
-                );
-                notifyListeners();
-              }
-            }
-          }
-
-          if (!streamingCompleted) break; // timeout
-
-          // If tool calls were detected, execute them all and loop
-          if (pendingToolCalls.isNotEmpty && _toolRunner != null) {
-            // Execute each tool call and build result messages
-            final toolResultMessages = <Map<String, dynamic>>[];
-
-            // Assistant message with all tool call requests
-            toolResultMessages.add({
-              'role': 'assistant',
-              'content': null,
-              'tool_calls': pendingToolCalls.map((tc) => {
-                'id': tc.id,
-                'type': 'function',
-                'function': {
-                  'name': tc.name,
-                  'arguments': json.encode(tc.arguments),
-                },
-              }).toList(),
-            });
-
-            // Tool result messages (one per call)
-            for (final tc in pendingToolCalls) {
-              final result = await _toolRunner!.run(tc.name, tc.arguments);
-              toolResultMessages.add({
-                'role': 'tool',
-                'tool_call_id': tc.id,
-                'content': result,
-              });
-            }
-
-            loopHistory = List<Map<String, String>>.from(allHistory);
-            loopUserMessage = text;
-            loopToolResults = toolResultMessages;
-            continue; // re-loop with tool results
-          }
-
-          // No tool call → normal response, break out
-          break;
-        }
-
-        if (hasStreamed && fullContent.isNotEmpty) {
-          _state = _state!.copyWith(lastReasoning: reasoningContent.toString());
-          notifyListeners();
-          await _processAiResponse(
-              current.conversationId, fullContent.toString(), provider,
-              AiTurnRequest(systemPrompt: systemPrompt, history: allHistory, userMessage: text, currentState: {}));
-        } else if (!hasStreamed && fullContent.isEmpty) {
-          await _fallbackNonStreaming(current.conversationId, provider,
-              AiTurnRequest(systemPrompt: systemPrompt, history: allHistory, userMessage: text, currentState: {}), '');
-        }
-      } catch (e) {
-        _streamSubscription = null;
-        if (!streamingCompleted) {
-          await _fallbackNonStreaming(current.conversationId, provider,
-              AiTurnRequest(systemPrompt: systemPrompt, history: allHistory, userMessage: text, currentState: {}), fullContent.toString());
-        }
-      }
+      await _streamTurnWithTools(
+        conversationId: current.conversationId,
+        systemPrompt: systemPrompt,
+        allHistory: allHistory,
+        userMessage: text,
+        provider: provider,
+      );
     } on AiAuthException catch (e) {
       _state = _state!.copyWith(isLoading: false, errorMessage: e.message, clearStreamingText: true);
       notifyListeners();

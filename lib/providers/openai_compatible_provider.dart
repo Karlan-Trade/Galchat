@@ -333,9 +333,14 @@ class OpenAiCompatibleProvider implements AiProvider {
       'model': _settings.model,
       'messages': messages,
       'temperature': _settings.temperature,
-      'max_tokens': _settings.maxTokens,
       'stream': stream,
     };
+    // Only send max_tokens when the user explicitly set a positive value.
+    // Sending max_tokens: 0 (the "unset" default) makes the server cap output
+    // at zero / errors out — omit the field so the model uses its own ceiling.
+    if (_settings.maxTokens > 0) {
+      body['max_tokens'] = _settings.maxTokens;
+    }
     if (_includeTools && _toolRunner != null) {
       body['tools'] = _narrativeFileTools;
       body['tool_choice'] = 'auto';

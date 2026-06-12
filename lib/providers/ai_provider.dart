@@ -1,4 +1,3 @@
-import 'dart:convert';
 import '../models/api_provider_preset.dart';
 
 /// The result of a single AI turn.
@@ -44,78 +43,12 @@ class AiTurnResult {
     );
   }
 
-  /// Parse JSON from the AI response, falling back to raw text.
-  factory AiTurnResult.fromJson(Map<String, dynamic> json) {
-    final msgList = <AiMessage>[];
-    final choices = <AiChoice>[];
-
-    // Parse messages
-    final rawMessages = json['messages'] as List<dynamic>? ?? [];
-    for (final m in rawMessages) {
-      msgList.add(AiMessage(
-        speaker: (m['speaker'] ?? '初雪') as String,
-        text: (m['text'] ?? '') as String,
-      ));
-    }
-
-    // Parse choices
-    final rawChoices = json['choices'] as List<dynamic>? ?? [];
-    for (final c in rawChoices) {
-      choices.add(AiChoice(
-        id: (c['id'] ?? '') as String,
-        text: (c['text'] ?? '') as String,
-      ));
-    }
-
-    // Parse state delta
-    StateDelta? delta;
-    if (json['state_delta'] != null) {
-      delta = StateDelta.fromJson(json['state_delta'] as Map<String, dynamic>);
-    }
-
-    return AiTurnResult(
-      messages: msgList,
-      choices: choices,
-      stateDelta: delta,
-      isValidJson: true,
-    );
-  }
-
-  /// Try to parse AI output as JSON. Falls back to raw text on failure.
-  static AiTurnResult parse(String raw) {
-    try {
-      // Find the first JSON object in the response
-      final trimmed = raw.trim();
-
-      // Try direct JSON parse first
-      try {
-        final json = jsonDecode(trimmed) as Map<String, dynamic>;
-        return AiTurnResult.fromJson(json);
-      } catch (_) {
-        // Try to extract JSON from markdown code blocks
-        final codeBlockRegex = RegExp(r'```(?:json)?\s*\n?([\s\S]*?)```');
-        final match = codeBlockRegex.firstMatch(trimmed);
-        if (match != null) {
-          final inner = match.group(1)!.trim();
-          final json = jsonDecode(inner) as Map<String, dynamic>;
-          return AiTurnResult.fromJson(json);
-        }
-
-        // Try to find { ... } in the text
-        final braceRegex = RegExp(r'\{[\s\S]*\}');
-        final braceMatch = braceRegex.firstMatch(trimmed);
-        if (braceMatch != null) {
-          final json = jsonDecode(braceMatch.group(0)!) as Map<String, dynamic>;
-          return AiTurnResult.fromJson(json);
-        }
-
-        // Nothing worked — fall back to raw text
-        return AiTurnResult.fromRawText(raw);
-      }
-    } catch (e) {
-      return AiTurnResult.fromRawText(raw);
-    }
-  }
+  /// Wrap the AI's native output for display.
+  ///
+  /// The per-turn JSON contract (`{messages, choices, state_delta}`) has been
+  /// deprecated — we no longer ask the model to emit structured turns, and we
+  /// render its raw output as-is. This method now simply wraps the raw text.
+  static AiTurnResult parse(String raw) => AiTurnResult.fromRawText(raw);
 }
 
 /// A single message from the AI character.
@@ -221,6 +154,30 @@ class AiSettings {
     this.markdownRender = false,
     this.protocol = ApiProtocol.openAiCompatible,
   });
+
+  AiSettings copyWith({
+    String? baseUrl,
+    String? model,
+    double? temperature,
+    int? maxTokens,
+    int? contextWindow,
+    String? truncateStrategy,
+    int? truncateLimit,
+    bool? markdownRender,
+    ApiProtocol? protocol,
+  }) {
+    return AiSettings(
+      baseUrl: baseUrl ?? this.baseUrl,
+      model: model ?? this.model,
+      temperature: temperature ?? this.temperature,
+      maxTokens: maxTokens ?? this.maxTokens,
+      contextWindow: contextWindow ?? this.contextWindow,
+      truncateStrategy: truncateStrategy ?? this.truncateStrategy,
+      truncateLimit: truncateLimit ?? this.truncateLimit,
+      markdownRender: markdownRender ?? this.markdownRender,
+      protocol: protocol ?? this.protocol,
+    );
+  }
 }
 
 /// Represents a model available at the provider's endpoint.

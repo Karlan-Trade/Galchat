@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/api_provider_preset.dart';
 import '../services/backup_service.dart';
+import '../services/narrative_service.dart';
 import '../state/conversation_state.dart';
 import '../state/settings_state.dart';
 
@@ -74,8 +75,42 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     }
   }
 
-  Future<void> _importBackup() async {
-    try {
+  /// Open the story setup wizard. If narrative files already hold content,
+  /// warn first — running the wizard overwrites those files and seeds a new
+  /// character prompt + conversation.
+  Future<void> _openStorySetup() async {
+    final ns = ref.read(narrativeServiceProvider);
+    final existing = await Future.wait([
+      ns.readFile('galgame-settings.md'),
+      ns.readFile('galgame-npcs.md'),
+      ns.readFile('galgame-plot-outline.md'),
+    ]);
+    final hasSetup = existing.any((c) => c.trim().isNotEmpty);
+
+    if (!mounted) return;
+
+    if (hasSetup) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('已存在故事设定'),
+          content: const Text(
+            '检测到已有故事设定文件喵...重新使用向导会覆盖现有的世界观、NPC、剧情大纲和角色提示词，'
+            '已经进行中的对话不受影响，但新设定会成为之后的默认设定哦~确定要继续吗？',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('继续设定')),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+
+    if (mounted) Navigator.pushNamed(context, '/story-setup');
+  }
+
+  Future<void> _importBackup() async {    try {
       final result = await FilePicker.pickFiles(
         dialogTitle: '选择备份文件',
         type: FileType.custom,
@@ -235,7 +270,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             title: '故事设定向导',
             subtitle: '新建一个带有自定义设定和开场的剧情存档',
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.pushNamed(context, '/story-setup'),
+            onTap: _openStorySetup,
           ),
           const SizedBox(height: 24),
 
@@ -280,7 +315,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           // Version info
           Center(
             child: Text(
-              'GalChat v0.5.7 · 初雪',
+              'GalChat v0.6.0 · 初雪',
               style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface.withOpacity(0.3)),
             ),
           ),
