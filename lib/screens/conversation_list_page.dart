@@ -28,7 +28,17 @@ class _ConversationListPageState extends ConsumerState<ConversationListPage> {
     final useWizard = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('新建对话'),
+        title: Row(
+          children: [
+            IconButton(
+              icon: const Icon(Icons.arrow_back),
+              tooltip: '取消',
+              onPressed: () => Navigator.pop(ctx),
+            ),
+            const SizedBox(width: 4),
+            const Text('新建对话'),
+          ],
+        ),
         content: const Text('是否使用向导设定故事背景喵？\n\n选「是」：初雪会通过几轮问答帮你搭建世界观和角色设定\n选「否」：直接开始对话，初雪会主动发来第一条消息'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('否，直接开始')),
@@ -38,6 +48,9 @@ class _ConversationListPageState extends ConsumerState<ConversationListPage> {
     );
 
     if (!mounted) return;
+
+    // null = 取消（点空白或取消按钮），不创建对话
+    if (useWizard == null) return;
 
     if (useWizard == true) {
       Navigator.pushNamed(context, '/story-setup').then((_) {
