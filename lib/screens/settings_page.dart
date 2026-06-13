@@ -336,7 +336,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           // Version info
           Center(
             child: Text(
-              'GalChat v0.6.13 · 初雪',
+              'GalChat v0.7.1 · 初雪',
               style: TextStyle(
                   fontSize: 12,
                   color: theme.colorScheme.onSurface.withOpacity(0.3)),

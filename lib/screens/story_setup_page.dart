@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +8,7 @@ import '../providers/provider_factory.dart';
 import '../services/api_key_service.dart';
 import '../services/narrative_service.dart';
 import '../state/settings_state.dart';
+import '../widgets/chat_bubble.dart';
 import '../widgets/message_input.dart';
 
 /// Story setup wizard — AI-driven conversational questionnaire.
@@ -24,6 +26,7 @@ class _StorySetupPageState extends ConsumerState<StorySetupPage> {
   final _messages = <_SetupMsg>[];
   final _scroll = ScrollController();
   final _fullBuf = StringBuffer();
+  StreamSubscription<AiStreamChunk>? _streamSubscription;
   bool _loading = false;
   bool _done = false;
   String? _error;
@@ -110,6 +113,7 @@ system_prompt 必须严格遵循以下 Galgame 叙事格式：
 
   @override
   void dispose() {
+    _streamSubscription?.cancel();
     _scroll.dispose();
     super.dispose();
   }
@@ -117,14 +121,19 @@ system_prompt 必须严格遵循以下 Galgame 叙事格式：
   void _scrollDown() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) {
-        _scroll.animateTo(_scroll.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+        _scroll.animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
       }
     });
   }
 
   Future<void> _send(String text) async {
     if (_loading || _done) return;
+    await _streamSubscription?.cancel();
+    _streamSubscription = null;
     setState(() {
       _loading = true;
       _error = null;
@@ -136,7 +145,10 @@ system_prompt 必须严格遵循以下 Galgame 叙事格式：
       final key = await ref.read(apiKeyServiceProvider).getApiKey();
       final s = ref.read(aiSettingsFromStateProvider);
       if (key == null || key.isEmpty) {
-        setState(() { _loading = false; _error = '请先配置API Key喵~'; });
+        setState(() {
+          _loading = false;
+          _error = '请先配置API Key喵~';
+        });
         return;
       }
 
@@ -149,31 +161,43 @@ system_prompt 必须严格遵循以下 Galgame 叙事格式：
       // the JSON and break parsing. Only raise an explicitly-set small limit;
       // when maxTokens is 0 (unset) we leave it so the model uses its own
       // ceiling — never cap an unset value down to 8192.
-      final setupSettings =
-          (s.maxTokens > 0 && s.maxTokens < 8192) ? s.copyWith(maxTokens: 8192) : s;
+      final setupSettings = (s.maxTokens > 0 && s.maxTokens < 8192)
+          ? s.copyWith(maxTokens: 8192)
+          : s;
       final p = createAiProvider(apiKey: key, settings: setupSettings);
-      final stream = p.sendTurnStream(AiTurnRequest(
-        systemPrompt: _setupPrompt,
-        history: hist,
-        userMessage: text,
-        currentState: {},
-      ));
+      final stream = p.sendTurnStream(
+        AiTurnRequest(
+          systemPrompt: _setupPrompt,
+          history: hist,
+          userMessage: text,
+          currentState: {},
+        ),
+      );
 
       _fullBuf.clear();
       _streaming = '';
 
-      stream.listen(
+      _streamSubscription = stream.listen(
         (c) {
+          if (!mounted) return;
           if (c.isDone) return;
           _fullBuf.write(c.textDelta);
           setState(() => _streaming = _fullBuf.toString());
           _scrollDown();
         },
-        onError: (e) => setState(() { _loading = false; _error = '$e'; }),
+        onError: (e) => setState(() {
+          _streamSubscription = null;
+          _loading = false;
+          _error = '$e';
+        }),
         onDone: () async {
+          _streamSubscription = null;
           final resp = _fullBuf.toString();
           if (resp.isEmpty) {
-            setState(() { _loading = false; _error = 'AI返回了空回复喵...'; });
+            setState(() {
+              _loading = false;
+              _error = 'AI返回了空回复喵...';
+            });
             return;
           }
 
@@ -181,14 +205,32 @@ system_prompt 必须严格遵循以下 Galgame 叙事格式：
             await _finish(resp);
           } else {
             _messages.add(_SetupMsg(me: false, text: resp));
-            setState(() { _loading = false; _streaming = ''; });
+            setState(() {
+              _loading = false;
+              _streaming = '';
+            });
             _scrollDown();
           }
         },
       );
     } catch (e) {
-      setState(() { _loading = false; _error = '发送失败喵... $e'; });
+      setState(() {
+        _loading = false;
+        _error = '发送失败喵... $e';
+      });
     }
+  }
+
+  Future<void> _handleCancel() async {
+    if (!_loading) return;
+    await _streamSubscription?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _streamSubscription = null;
+      _loading = false;
+      _streaming = '';
+      _error = '已停止生成喵~';
+    });
   }
 
   Future<void> _finish(String resp) async {
@@ -215,16 +257,23 @@ system_prompt 必须严格遵循以下 Galgame 叙事格式：
       final settingsMd = cfg['settings_md'] as String? ?? '';
 
       final ns = ref.read(narrativeServiceProvider);
-      if (settingsMd.isNotEmpty) await ns.writeFile('galgame-settings.md', settingsMd);
+      if (settingsMd.isNotEmpty) {
+        await ns.writeFile('galgame-settings.md', settingsMd);
+      }
       final npcsMd = cfg['npcs_md'] as String? ?? '';
       if (npcsMd.isNotEmpty) await ns.writeFile('galgame-npcs.md', npcsMd);
       final plotMd = cfg['plot_md'] as String? ?? '';
-      if (plotMd.isNotEmpty) await ns.writeFile('galgame-plot-outline.md', plotMd);
+      if (plotMd.isNotEmpty) {
+        await ns.writeFile('galgame-plot-outline.md', plotMd);
+      }
       final progMd = cfg['progress_md'] as String? ?? '';
       if (progMd.isNotEmpty) {
         await ns.writeFile('galgame-progress.md', progMd);
       } else {
-        await ns.writeFile('galgame-progress.md', '# 进度追踪\n\n- 状态：准备开始\n- 故事：$title\n');
+        await ns.writeFile(
+          'galgame-progress.md',
+          '# 进度追踪\n\n- 状态：准备开始\n- 故事：$title\n',
+        );
       }
 
       final db = ref.read(databaseProvider);
@@ -247,16 +296,25 @@ system_prompt 必须严格遵循以下 Galgame 叙事格式：
 
       final cid = await db.createConversation(ch.id, title);
 
-      _messages.add(_SetupMsg(me: false, text: '设定完成喵~ 开始我们的故事吧！'));
+      _messages.add(const _SetupMsg(me: false, text: '设定完成喵~ 开始我们的故事吧！'));
       if (mounted) {
-        setState(() { _loading = false; _done = true; _streaming = ''; });
+        setState(() {
+          _loading = false;
+          _done = true;
+          _streaming = '';
+        });
       }
 
       await Future.delayed(const Duration(seconds: 1));
-      if (mounted) Navigator.pushReplacementNamed(context, '/chat', arguments: cid);
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/chat', arguments: cid);
+      }
     } catch (e) {
       if (mounted) {
-        setState(() { _loading = false; _error = '保存设定失败喵... $e'; });
+        setState(() {
+          _loading = false;
+          _error = '保存设定失败喵... $e';
+        });
       }
     }
   }
@@ -297,6 +355,8 @@ system_prompt 必须严格遵循以下 Galgame 叙事格式：
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
+    final markdownEnabled =
+        ref.watch(aiSettingsFromStateProvider).markdownRender;
 
     // Any time the wizard is open and hasn't finished, leaving discards the
     // in-progress Q&A. Guard the exit regardless of how many messages were
@@ -308,14 +368,18 @@ system_prompt 必须严格遵循以下 Galgame 叙事格式：
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
         final leave = await _confirmExit();
-        if (leave && mounted) Navigator.of(context).pop();
+        if (leave && context.mounted) Navigator.of(context).pop();
       },
       child: Scaffold(
         appBar: AppBar(
           title: const Text('故事设定'),
           actions: [
             if (_error != null)
-              IconButton(icon: const Icon(Icons.refresh), tooltip: '重试', onPressed: () => _send('（重试）')),
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                tooltip: '重试',
+                onPressed: () => _send('（重试）'),
+              ),
           ],
         ),
         body: Column(
@@ -324,7 +388,7 @@ system_prompt 必须严格遵循以下 Galgame 叙事格式：
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
-              color: t.colorScheme.primaryContainer.withOpacity(0.3),
+              color: t.colorScheme.primaryContainer.withValues(alpha: 0.3),
               child: Text(
                 _done ? '设定完成！正在进入故事...' : '初雪会引导你设定故事背景，请回答每个问题喵~',
                 style: TextStyle(fontSize: 13, color: t.colorScheme.onSurface),
@@ -332,10 +396,18 @@ system_prompt 必须严格遵循以下 Galgame 叙事格式：
             ),
             if (_error != null)
               MaterialBanner(
-                content: SelectableText(_error!, style: const TextStyle(fontSize: 13)),
+                content: SelectableText(
+                  _error!,
+                  style: const TextStyle(fontSize: 13),
+                ),
                 backgroundColor: t.colorScheme.errorContainer,
                 leading: Icon(Icons.error_outline, color: t.colorScheme.error),
-                actions: [TextButton(onPressed: () => _send('（重试）'), child: const Text('重试'))],
+                actions: [
+                  TextButton(
+                    onPressed: () => _send('（重试）'),
+                    child: const Text('重试'),
+                  ),
+                ],
               ),
             Expanded(
               child: ListView.builder(
@@ -344,15 +416,29 @@ system_prompt 必须严格遵循以下 Galgame 叙事格式：
                 itemCount: _messages.length + (_streaming.isNotEmpty ? 1 : 0),
                 itemBuilder: (_, i) {
                   if (i == _messages.length && _streaming.isNotEmpty) {
-                    return _Bubble(text: _streaming, me: false, streaming: true);
+                    return ChatBubble(
+                      content: _streaming,
+                      speaker: '初雪',
+                      isStreaming: true,
+                      markdownEnabled: markdownEnabled,
+                    );
                   }
                   final m = _messages[i];
-                  return _Bubble(text: m.text, me: m.me);
+                  return ChatBubble(
+                    content: m.text,
+                    speaker: m.me ? null : '初雪',
+                    isUser: m.me,
+                    markdownEnabled: markdownEnabled,
+                  );
                 },
               ),
             ),
             if (!_done)
-              MessageInput(isLoading: _loading, onSend: _send),
+              MessageInput(
+                isLoading: _loading,
+                onSend: _send,
+                onCancel: _handleCancel,
+              ),
           ],
         ),
       ),
@@ -367,9 +453,14 @@ system_prompt 必须严格遵循以下 Galgame 叙事格式：
         title: const Text('退出设定向导？'),
         content: const Text('当前设定进度还没保存喵...退出后这些问答会全部丢失，需要重新开始哦~'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('继续设定')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('继续设定'),
+          ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('退出'),
           ),
@@ -384,73 +475,4 @@ class _SetupMsg {
   final bool me;
   final String text;
   const _SetupMsg({required this.me, required this.text});
-}
-
-class _Bubble extends StatelessWidget {
-  final String text;
-  final bool me;
-  final bool streaming;
-  const _Bubble({required this.text, required this.me, this.streaming = false});
-
-  @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context);
-    final isDark = t.brightness == Brightness.dark;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: Row(
-        mainAxisAlignment: me ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          if (!me)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: CircleAvatar(
-                radius: 16,
-                backgroundColor: t.colorScheme.tertiaryContainer,
-                child: Icon(Icons.auto_awesome, size: 16, color: t.colorScheme.onTertiaryContainer),
-              ),
-            ),
-          Flexible(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: me ? t.colorScheme.primary : (isDark ? Colors.grey[800]! : Colors.grey[100]!),
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(16),
-                  topRight: const Radius.circular(16),
-                  bottomLeft: Radius.circular(me ? 16 : 4),
-                  bottomRight: Radius.circular(me ? 4 : 16),
-                ),
-              ),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                SelectableText(text, style: TextStyle(fontSize: 15, color: me ? t.colorScheme.onPrimary : t.colorScheme.onSurface, height: 1.5)),
-                if (streaming) const _Cursor(),
-              ]),
-            ),
-          ),
-          if (me)
-            Padding(
-              padding: const EdgeInsets.only(left: 8),
-              child: CircleAvatar(radius: 16, backgroundColor: t.colorScheme.primary, child: Icon(Icons.person, size: 16, color: t.colorScheme.onPrimary)),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Cursor extends StatefulWidget {
-  const _Cursor();
-  @override
-  State<_Cursor> createState() => _CursorState();
-}
-
-class _CursorState extends State<_Cursor> with SingleTickerProviderStateMixin {
-  late final _c = AnimationController(duration: const Duration(milliseconds: 500), vsync: this)..repeat(reverse: true);
-  @override
-  void dispose() { _c.dispose(); super.dispose(); }
-  @override
-  Widget build(BuildContext context) => FadeTransition(opacity: _c, child: Container(width: 8, height: 16, decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary, borderRadius: BorderRadius.circular(2))));
 }

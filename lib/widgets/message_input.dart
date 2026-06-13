@@ -57,7 +57,7 @@ class _MessageInputState extends State<MessageInput> {
         color: theme.colorScheme.surface,
         border: Border(
           top: BorderSide(
-            color: theme.dividerColor.withOpacity(0.3),
+            color: theme.dividerColor.withValues(alpha: 0.3),
             width: 0.5,
           ),
         ),
@@ -70,10 +70,11 @@ class _MessageInputState extends State<MessageInput> {
             child: Container(
               constraints: const BoxConstraints(maxHeight: 120),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                color: theme.colorScheme.surfaceContainerHighest
+                    .withValues(alpha: 0.5),
                 borderRadius: BorderRadius.circular(24),
                 border: Border.all(
-                  color: theme.colorScheme.outline.withOpacity(0.2),
+                  color: theme.colorScheme.outline.withValues(alpha: 0.2),
                 ),
               ),
               child: TextField(
@@ -92,7 +93,7 @@ class _MessageInputState extends State<MessageInput> {
                 decoration: InputDecoration(
                   hintText: widget.isLoading ? '初雪正在思考喵...' : '输入消息...',
                   hintStyle: TextStyle(
-                    color: theme.colorScheme.onSurface.withOpacity(0.4),
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
                     fontSize: 15,
                   ),
                   contentPadding:
@@ -156,7 +157,7 @@ class _SendButton extends StatelessWidget {
           size: 20,
           color: enabled
               ? theme.colorScheme.onPrimary
-              : theme.colorScheme.onSurface.withOpacity(0.3),
+              : theme.colorScheme.onSurface.withValues(alpha: 0.3),
         ),
       ),
     );
@@ -171,20 +172,40 @@ class _CancelButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.red.withOpacity(0.85),
-        ),
-        alignment: Alignment.center,
-        child: const Icon(
-          Icons.stop_rounded,
-          size: 24,
-          color: Colors.white,
+    return Tooltip(
+      message: '正在生成，点击停止',
+      child: GestureDetector(
+        onTap: onTap,
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              SizedBox(
+                width: 44,
+                height: 44,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.red.withValues(alpha: 0.85),
+                ),
+                alignment: Alignment.center,
+                child: const Icon(
+                  Icons.stop_rounded,
+                  size: 22,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
