@@ -82,6 +82,7 @@ class ChatNotifier extends ChangeNotifier {
   StreamSubscription<AiStreamChunk>? _streamSubscription;
   Completer<void>? _streamCompleter;
   bool _isDisposed = false;
+  bool _cancelled = false;
   String? _exampleDialogue;
   String? _openingPrompt;
   String _replyStylePrompt = '';
@@ -175,6 +176,9 @@ class ChatNotifier extends ChangeNotifier {
     final partialText = current.streamingText;
     final partialReasoning = current.streamingReasoning;
 
+    // Signal the stream loop to stop before we cancel — prevents
+    // _streamTurnWithTools from also saving a message.
+    _cancelled = true;
     _cancelStreamSubscription();
 
     // Save whatever has been partially streamed
@@ -293,6 +297,8 @@ class ChatNotifier extends ChangeNotifier {
   }) async {
     if (_isDisposed) return;
 
+    _cancelled = false;
+
     final fullContent = StringBuffer();
     final reasoningContent = StringBuffer();
     bool streamingCompleted = false;
@@ -395,6 +401,7 @@ class ChatNotifier extends ChangeNotifier {
         _streamCompleter = null;
 
         if (_isDisposed) return;
+        if (_cancelled) return;
         if (!streamingCompleted) break; // timeout or error
 
         // If tool calls were detected, execute them all and loop
@@ -433,6 +440,7 @@ class ChatNotifier extends ChangeNotifier {
       }
 
       if (_isDisposed) return;
+      if (_cancelled) return;
 
       if (hasStreamed && fullContent.isNotEmpty) {
         _state = _state!.copyWith(lastReasoning: reasoningContent.toString());
@@ -443,6 +451,7 @@ class ChatNotifier extends ChangeNotifier {
       }
     } catch (e) {
       if (_isDisposed) return;
+      if (_cancelled) return;
       _streamSubscription = null;
       if (!streamingCompleted) {
         await _fallbackNonStreaming(conversationId, provider, baseRequest, fullContent.toString());
@@ -552,6 +561,7 @@ class ChatNotifier extends ChangeNotifier {
     AiProvider provider,
     AiTurnRequest request,
   ) async {
+    if (_cancelled) return; // User cancelled — cancelGeneration() handles saving
     if (generatedText.isEmpty) {
       await _fallbackNonStreaming(conversationId, provider, request, '');
       return;
@@ -585,6 +595,7 @@ class ChatNotifier extends ChangeNotifier {
     AiTurnRequest request,
     String streamedSoFar,
   ) async {
+    if (_cancelled) return;
     try {
       final result = await provider.sendTurn(request);
       final responseText = result.messages.isNotEmpty
