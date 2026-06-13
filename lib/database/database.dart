@@ -10,7 +10,14 @@ final databaseProvider = Provider<AppDatabase>((ref) {
   throw UnimplementedError('Override this provider in main()');
 });
 
-@DriftDatabase(tables: [Characters, Conversations, Messages, Choices, GameStates, AiSettings])
+@DriftDatabase(tables: [
+  Characters,
+  Conversations,
+  Messages,
+  Choices,
+  GameStates,
+  AiSettings
+])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
@@ -43,7 +50,7 @@ class AppDatabase extends _$AppDatabase {
       name: const Value('hatsuyuki'),
       displayName: const Value('初雪'),
       systemPrompt: const Value(_defaultSystemPrompt),
-      greeting: const Value('初次见面，我叫初雪，今天刚转学到这里喵~ 请多多关照！'),
+      greeting: const Value(defaultCharacterGreeting),
       worldSetting: const Value('现代校园日常生活'),
       replyStyle: const Value('猫娘系粘人/小傲娇'),
       createdAt: Value(DateTime.now()),
@@ -56,7 +63,8 @@ class AppDatabase extends _$AppDatabase {
   // ============================================================
 
   Future<Character> getDefaultCharacter() {
-    return (select(characters)..where((c) => c.name.equals('hatsuyuki'))).getSingle();
+    return (select(characters)..where((c) => c.name.equals('hatsuyuki')))
+        .getSingle();
   }
 
   Future<List<Character>> allCharacters() {
@@ -64,7 +72,8 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<Character?> getCharacterById(int id) {
-    return (select(characters)..where((c) => c.id.equals(id))).getSingleOrNull();
+    return (select(characters)..where((c) => c.id.equals(id)))
+        .getSingleOrNull();
   }
 
   Future<void> updateCharacter({
@@ -91,7 +100,7 @@ class AppDatabase extends _$AppDatabase {
     await (update(characters)..where((c) => c.id.equals(characterId))).write(
       CharactersCompanion(
         systemPrompt: const Value(_defaultSystemPrompt),
-        greeting: const Value('初次见面，我叫初雪，今天刚转学到这里喵~ 请多多关照！'),
+        greeting: const Value(defaultCharacterGreeting),
         worldSetting: const Value('现代校园日常生活'),
         replyStyle: const Value('猫娘系粘人/小傲娇'),
         updatedAt: Value(DateTime.now()),
@@ -111,7 +120,8 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<Conversation?> getConversationById(int id) {
-    return (select(conversations)..where((c) => c.id.equals(id))).getSingleOrNull();
+    return (select(conversations)..where((c) => c.id.equals(id)))
+        .getSingleOrNull();
   }
 
   Future<int> createConversation(int characterId, String title) {
@@ -126,13 +136,15 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> updateConversationTitle(int id, String title) {
     return (update(conversations)..where((c) => c.id.equals(id))).write(
-      ConversationsCompanion(title: Value(title), updatedAt: Value(DateTime.now())),
+      ConversationsCompanion(
+          title: Value(title), updatedAt: Value(DateTime.now())),
     );
   }
 
   Future<void> archiveConversation(int id) {
     return (update(conversations)..where((c) => c.id.equals(id))).write(
-      ConversationsCompanion(archivedAt: Value(DateTime.now()), updatedAt: Value(DateTime.now())),
+      ConversationsCompanion(
+          archivedAt: Value(DateTime.now()), updatedAt: Value(DateTime.now())),
     );
   }
 
@@ -140,7 +152,8 @@ class AppDatabase extends _$AppDatabase {
     await transaction(() async {
       await (delete(choices)..where((c) => c.conversationId.equals(id))).go();
       await (delete(messages)..where((m) => m.conversationId.equals(id))).go();
-      await (delete(gameStates)..where((g) => g.conversationId.equals(id))).go();
+      await (delete(gameStates)..where((g) => g.conversationId.equals(id)))
+          .go();
       await (delete(conversations)..where((c) => c.id.equals(id))).go();
     });
   }
@@ -198,14 +211,16 @@ class AppDatabase extends _$AppDatabase {
   // ============================================================
 
   Future<GameState?> getGameState(int conversationId) {
-    return (select(gameStates)..where((g) => g.conversationId.equals(conversationId)))
+    return (select(gameStates)
+          ..where((g) => g.conversationId.equals(conversationId)))
         .getSingleOrNull();
   }
 
   Future<void> upsertGameState(GameStatesCompanion entry) async {
     final existing = await getGameState(entry.conversationId.value);
     if (existing != null) {
-      await (update(gameStates)..where((g) => g.conversationId.equals(entry.conversationId.value)))
+      await (update(gameStates)
+            ..where((g) => g.conversationId.equals(entry.conversationId.value)))
           .write(entry);
     } else {
       await into(gameStates).insert(entry);
@@ -223,7 +238,8 @@ class AppDatabase extends _$AppDatabase {
   Future<void> saveAiSettings(AiSettingsCompanion entry) async {
     final existing = await getAiSettings();
     if (existing != null) {
-      await (update(aiSettings)..where((a) => a.id.equals(existing.id))).write(entry);
+      await (update(aiSettings)..where((a) => a.id.equals(existing.id)))
+          .write(entry);
     } else {
       await into(aiSettings).insert(entry);
     }
@@ -311,3 +327,7 @@ class BackupData {
 
 /// Default system prompt for 初雪 — empty by default, user fills in their own.
 const String _defaultSystemPrompt = '';
+
+const String defaultCharacterGreeting = '（本地兜底提示）AI 开场生成没有返回可显示正文喵...'
+    '这通常是接口超时、网络中断、模型一直停留在思考阶段，'
+    '或 API 返回为空导致的。可以点重试，或关闭思考模式/工具调用后再试。';

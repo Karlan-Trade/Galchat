@@ -26,7 +26,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     super.initState();
     Future.microtask(() async {
       try {
-        await ref.read(settingsProvider.notifier).load();
+        await ref.read(settingsLoadProvider.future);
+        await ref.read(settingsProvider.notifier).refreshApiKeyStatus();
       } catch (e) {
         _loadError = '$e';
       }
@@ -99,8 +100,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             '已经进行中的对话不受影响，但新设定会成为之后的默认设定哦~确定要继续吗？',
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('继续设定')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('取消')),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('继续设定')),
           ],
         ),
       );
@@ -110,7 +115,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     if (mounted) Navigator.pushNamed(context, '/story-setup');
   }
 
-  Future<void> _importBackup() async {    try {
+  Future<void> _importBackup() async {
+    try {
       final result = await FilePicker.pickFiles(
         dialogTitle: '选择备份文件',
         type: FileType.custom,
@@ -177,7 +183,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 const SizedBox(height: 16),
                 const Text('加载设置失败喵...', style: TextStyle(fontSize: 16)),
                 const SizedBox(height: 8),
-                Text(_loadError!, style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface.withOpacity(0.6)), textAlign: TextAlign.center),
+                Text(_loadError!,
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.onSurface.withOpacity(0.6)),
+                    textAlign: TextAlign.center),
                 const SizedBox(height: 16),
                 OutlinedButton(
                   onPressed: () async {
@@ -186,7 +196,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       _loadError = null;
                     });
                     try {
-                      await ref.read(settingsProvider.notifier).load();
+                      ref.invalidate(settingsLoadProvider);
+                      await ref.read(settingsLoadProvider.future);
+                      await ref
+                          .read(settingsProvider.notifier)
+                          .refreshApiKeyStatus();
                     } catch (e) {
                       _loadError = '$e';
                     }
@@ -223,12 +237,17 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
                     color: connectionColor.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Text(connectionStatus, style: TextStyle(fontSize: 11, color: connectionColor, fontWeight: FontWeight.w600)),
+                  child: Text(connectionStatus,
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: connectionColor,
+                          fontWeight: FontWeight.w600)),
                 ),
                 const SizedBox(width: 8),
                 const Icon(Icons.chevron_right),
@@ -307,7 +326,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           const SizedBox(height: 8),
           Text(
             '备份文件不含API Key，安全存储在本地。',
-            style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurface.withOpacity(0.45)),
+            style: TextStyle(
+                fontSize: 11,
+                color: theme.colorScheme.onSurface.withOpacity(0.45)),
           ),
 
           const SizedBox(height: 32),
@@ -315,8 +336,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           // Version info
           Center(
             child: Text(
-              'GalChat v0.6.4 · 初雪',
-              style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface.withOpacity(0.3)),
+              'GalChat v0.6.13 · 初雪',
+              style: TextStyle(
+                  fontSize: 12,
+                  color: theme.colorScheme.onSurface.withOpacity(0.3)),
             ),
           ),
           const SizedBox(height: 16),
@@ -372,9 +395,15 @@ class _HubCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    Text(title,
+                        style: const TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w600)),
                     const SizedBox(height: 3),
-                    Text(subtitle, style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface.withOpacity(0.55))),
+                    Text(subtitle,
+                        style: TextStyle(
+                            fontSize: 12,
+                            color:
+                                theme.colorScheme.onSurface.withOpacity(0.55))),
                   ],
                 ),
               ),
@@ -419,12 +448,16 @@ class _ActionCard extends StatelessWidget {
             children: [
               Icon(icon, size: 28, color: theme.colorScheme.primary),
               const SizedBox(height: 10),
-              Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              Text(title,
+                  style: const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w600)),
               const SizedBox(height: 4),
               Text(
                 subtitle,
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurface.withOpacity(0.55)),
+                style: TextStyle(
+                    fontSize: 11,
+                    color: theme.colorScheme.onSurface.withOpacity(0.55)),
               ),
             ],
           ),
@@ -446,7 +479,11 @@ class _SectionHeader extends StatelessWidget {
       children: [
         Icon(icon, size: 18, color: theme.colorScheme.primary),
         const SizedBox(width: 8),
-        Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: theme.colorScheme.primary)),
+        Text(title,
+            style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.primary)),
       ],
     );
   }

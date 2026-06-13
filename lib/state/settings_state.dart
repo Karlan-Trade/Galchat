@@ -57,11 +57,28 @@ class SettingsUiState {
   });
 
   SettingsUiState copyWith({
-    String? baseUrl, String? model, double? temperature, int? maxTokens,
-    int? contextWindow, String? truncateStrategy, int? truncateLimit, bool? includeExampleDialogue,
-    bool? aiFirstMessage, bool? thinkingEnabled, bool? toolsEnabled, bool? markdownRender, String? providerPresetId, bool? hasApiKey, bool? isApiKeyMasked, bool? isTesting,
-    String? testResult, bool? testSuccess, bool clearTestResult = false,
-    List<AiModel>? availableModels, bool? isLoadingModels, bool clearModels = false,
+    String? baseUrl,
+    String? model,
+    double? temperature,
+    int? maxTokens,
+    int? contextWindow,
+    String? truncateStrategy,
+    int? truncateLimit,
+    bool? includeExampleDialogue,
+    bool? aiFirstMessage,
+    bool? thinkingEnabled,
+    bool? toolsEnabled,
+    bool? markdownRender,
+    String? providerPresetId,
+    bool? hasApiKey,
+    bool? isApiKeyMasked,
+    bool? isTesting,
+    String? testResult,
+    bool? testSuccess,
+    bool clearTestResult = false,
+    List<AiModel>? availableModels,
+    bool? isLoadingModels,
+    bool clearModels = false,
   }) {
     return SettingsUiState(
       baseUrl: baseUrl ?? this.baseUrl,
@@ -71,7 +88,8 @@ class SettingsUiState {
       contextWindow: contextWindow ?? this.contextWindow,
       truncateStrategy: truncateStrategy ?? this.truncateStrategy,
       truncateLimit: truncateLimit ?? this.truncateLimit,
-      includeExampleDialogue: includeExampleDialogue ?? this.includeExampleDialogue,
+      includeExampleDialogue:
+          includeExampleDialogue ?? this.includeExampleDialogue,
       aiFirstMessage: aiFirstMessage ?? this.aiFirstMessage,
       thinkingEnabled: thinkingEnabled ?? this.thinkingEnabled,
       toolsEnabled: toolsEnabled ?? this.toolsEnabled,
@@ -82,7 +100,8 @@ class SettingsUiState {
       isTesting: isTesting ?? this.isTesting,
       testResult: clearTestResult ? null : (testResult ?? this.testResult),
       testSuccess: testSuccess ?? this.testSuccess,
-      availableModels: clearModels ? [] : (availableModels ?? this.availableModels),
+      availableModels:
+          clearModels ? [] : (availableModels ?? this.availableModels),
       isLoadingModels: isLoadingModels ?? this.isLoadingModels,
     );
   }
@@ -92,12 +111,16 @@ class SettingsNotifier extends StateNotifier<SettingsUiState> {
   final AppDatabase _db;
   final ApiKeyService _apiKeyService;
 
-  SettingsNotifier(this._db, this._apiKeyService) : super(const SettingsUiState());
+  SettingsNotifier(this._db, this._apiKeyService)
+      : super(const SettingsUiState());
 
-  Future<void> load() async {
+  Future<void> load({bool refreshApiKey = true}) async {
+    final hasKey = refreshApiKey
+        ? await _readHasApiKey(defaultValue: state.hasApiKey)
+        : state.hasApiKey;
+
     try {
       final aiSettings = await _db.getAiSettings();
-      final hasKey = await _apiKeyService.hasApiKey();
 
       if (aiSettings != null) {
         state = SettingsUiState(
@@ -116,7 +139,6 @@ class SettingsNotifier extends StateNotifier<SettingsUiState> {
       }
     } catch (e) {
       debugPrint('SettingsNotifier.load: 数据库读取失败，使用默认值 — $e');
-      final hasKey = await _apiKeyService.hasApiKey();
       state = state.copyWith(hasApiKey: hasKey);
     }
     final hadSavedPreset = await _loadPrefs();
@@ -132,7 +154,8 @@ class SettingsNotifier extends StateNotifier<SettingsUiState> {
     if (detected.id == 'custom' && state.providerPresetId != 'custom') {
       // User was on a preset but no longer matches — mark as custom
       state = state.copyWith(providerPresetId: 'custom');
-    } else if (detected.id != 'custom' && state.providerPresetId != detected.id) {
+    } else if (detected.id != 'custom' &&
+        state.providerPresetId != detected.id) {
       // Base URL matches a known preset — sync
       state = state.copyWith(providerPresetId: detected.id);
     }
@@ -143,17 +166,34 @@ class SettingsNotifier extends StateNotifier<SettingsUiState> {
     // Preset gets set exclusively by selectProviderPreset().
     state = state.copyWith(baseUrl: url);
   }
+
   void setModel(String model) => state = state.copyWith(model: model);
   void setTemperature(double temp) => state = state.copyWith(temperature: temp);
   void setMaxTokens(int tokens) => state = state.copyWith(maxTokens: tokens);
   void setContextWindow(int n) => state = state.copyWith(contextWindow: n);
-  void setTruncateStrategy(String s) => state = state.copyWith(truncateStrategy: s);
+  void setTruncateStrategy(String s) =>
+      state = state.copyWith(truncateStrategy: s);
   void setTruncateLimit(int n) => state = state.copyWith(truncateLimit: n);
-  void setIncludeExampleDialogue(bool v) => state = state.copyWith(includeExampleDialogue: v);
+  void setIncludeExampleDialogue(bool v) =>
+      state = state.copyWith(includeExampleDialogue: v);
   void setAiFirstMessage(bool v) => state = state.copyWith(aiFirstMessage: v);
   void setThinkingEnabled(bool v) => state = state.copyWith(thinkingEnabled: v);
   void setToolsEnabled(bool v) => state = state.copyWith(toolsEnabled: v);
   void setMarkdownRender(bool v) => state = state.copyWith(markdownRender: v);
+
+  Future<void> refreshApiKeyStatus() async {
+    final hasKey = await _readHasApiKey(defaultValue: state.hasApiKey);
+    state = state.copyWith(hasApiKey: hasKey);
+  }
+
+  Future<bool> _readHasApiKey({required bool defaultValue}) async {
+    try {
+      return await _apiKeyService.hasApiKey();
+    } catch (e) {
+      debugPrint('SettingsNotifier._readHasApiKey: API Key 状态读取失败 — $e');
+      return defaultValue;
+    }
+  }
 
   /// Clear the available models list (e.g. after user selects a model).
   void clearAvailableModels() => state = state.copyWith(clearModels: true);
@@ -206,11 +246,15 @@ class SettingsNotifier extends StateNotifier<SettingsUiState> {
         // markdownRender, etc.) are loaded separately and shouldn't be
         // overwritten here.
         state = state.copyWith(
-          includeExampleDialogue: data['includeExampleDialogue'] as bool? ?? state.includeExampleDialogue,
-          aiFirstMessage: data['aiFirstMessage'] as bool? ?? state.aiFirstMessage,
-          thinkingEnabled: data['thinkingEnabled'] as bool? ?? state.thinkingEnabled,
+          includeExampleDialogue: data['includeExampleDialogue'] as bool? ??
+              state.includeExampleDialogue,
+          aiFirstMessage:
+              data['aiFirstMessage'] as bool? ?? state.aiFirstMessage,
+          thinkingEnabled:
+              data['thinkingEnabled'] as bool? ?? state.thinkingEnabled,
           toolsEnabled: data['toolsEnabled'] as bool? ?? state.toolsEnabled,
-          providerPresetId: data['providerPresetId'] as String? ?? state.providerPresetId,
+          providerPresetId:
+              data['providerPresetId'] as String? ?? state.providerPresetId,
         );
         return data.containsKey('providerPresetId');
       }
@@ -262,14 +306,20 @@ class SettingsNotifier extends StateNotifier<SettingsUiState> {
     state = state.copyWith(isTesting: true, clearTestResult: true);
     final apiKey = await _apiKeyService.getApiKey();
     if (apiKey == null || apiKey.isEmpty) {
-      state = state.copyWith(isTesting: false, testResult: '请先设置API Key喵~', testSuccess: false);
+      state = state.copyWith(
+          isTesting: false, testResult: '请先设置API Key喵~', testSuccess: false);
       return;
     }
     final provider = createAiProvider(
-      apiKey: apiKey, settings: AiSettings(baseUrl: state.baseUrl, model: state.model),
+      apiKey: apiKey,
+      settings: AiSettings(baseUrl: state.baseUrl, model: state.model),
     );
-    final result = await provider.testConnection(AiSettings(baseUrl: state.baseUrl, model: state.model));
-    state = state.copyWith(isTesting: false, testResult: result.message, testSuccess: result.success);
+    final result = await provider
+        .testConnection(AiSettings(baseUrl: state.baseUrl, model: state.model));
+    state = state.copyWith(
+        isTesting: false,
+        testResult: result.message,
+        testSuccess: result.success);
   }
 
   Future<void> fetchModels() async {
@@ -281,9 +331,11 @@ class SettingsNotifier extends StateNotifier<SettingsUiState> {
     state = state.copyWith(isLoadingModels: true, clearModels: true);
     try {
       final provider = createAiProvider(
-        apiKey: apiKey, settings: AiSettings(baseUrl: state.baseUrl, model: state.model),
+        apiKey: apiKey,
+        settings: AiSettings(baseUrl: state.baseUrl, model: state.model),
       );
-      final models = await provider.fetchModels(baseUrl: state.baseUrl, apiKey: apiKey);
+      final models =
+          await provider.fetchModels(baseUrl: state.baseUrl, apiKey: apiKey);
       models.sort((a, b) {
         final aChat = _isChatModel(a.id), bChat = _isChatModel(b.id);
         if (aChat && !bChat) return -1;
@@ -292,19 +344,28 @@ class SettingsNotifier extends StateNotifier<SettingsUiState> {
       });
       state = state.copyWith(isLoadingModels: false, availableModels: models);
     } catch (_) {
-      state = state.copyWith(isLoadingModels: false, testResult: '获取模型列表失败喵~', testSuccess: false);
+      state = state.copyWith(
+          isLoadingModels: false, testResult: '获取模型列表失败喵~', testSuccess: false);
     }
   }
 
   bool _isChatModel(String id) {
     final lower = id.toLowerCase();
-    return lower.contains('gpt') || lower.contains('claude') || lower.contains('gemini') ||
-        lower.contains('chat') || lower.contains('qwen') || lower.contains('deepseek') ||
-        lower.contains('glm') || lower.contains('ernie') || lower.contains('yi-') || lower.contains('moonshot');
+    return lower.contains('gpt') ||
+        lower.contains('claude') ||
+        lower.contains('gemini') ||
+        lower.contains('chat') ||
+        lower.contains('qwen') ||
+        lower.contains('deepseek') ||
+        lower.contains('glm') ||
+        lower.contains('ernie') ||
+        lower.contains('yi-') ||
+        lower.contains('moonshot');
   }
 }
 
-final settingsProvider = StateNotifierProvider<SettingsNotifier, SettingsUiState>(
+final settingsProvider =
+    StateNotifierProvider<SettingsNotifier, SettingsUiState>(
   (ref) {
     final db = ref.watch(databaseProvider);
     final apiKeyService = ref.watch(apiKeyServiceProvider);
@@ -312,13 +373,20 @@ final settingsProvider = StateNotifierProvider<SettingsNotifier, SettingsUiState
   },
 );
 
+final settingsLoadProvider = FutureProvider<void>((ref) async {
+  await ref.read(settingsProvider.notifier).load(refreshApiKey: false);
+});
+
 final aiSettingsFromStateProvider = Provider<AiSettings>((ref) {
   final state = ref.watch(settingsProvider);
   return AiSettings(
-    baseUrl: state.baseUrl, model: state.model,
-    temperature: state.temperature, maxTokens: state.maxTokens,
+    baseUrl: state.baseUrl,
+    model: state.model,
+    temperature: state.temperature,
+    maxTokens: state.maxTokens,
     contextWindow: state.contextWindow,
-    truncateStrategy: state.truncateStrategy, truncateLimit: state.truncateLimit,
+    truncateStrategy: state.truncateStrategy,
+    truncateLimit: state.truncateLimit,
     markdownRender: state.markdownRender,
     protocol: findPreset(state.providerPresetId).protocol,
   );

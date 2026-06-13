@@ -23,7 +23,7 @@ class BackupService {
     final exportJson = {
       'schema_version': _currentSchemaVersion,
       'exported_at': DateTime.now().toIso8601String(),
-      'app_version': '0.6.4',
+      'app_version': '0.6.13',
       'characters': data.characters.map(_characterToJson).toList(),
       'conversations': data.conversations.map(_conversationToJson).toList(),
       'messages': data.messages.map(_messageToJson).toList(),
@@ -51,7 +51,8 @@ class BackupService {
   Future<String> exportToFile() async {
     final json = await buildExportJson();
     final dir = await getApplicationDocumentsDirectory();
-    final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-').split('.')[0];
+    final timestamp =
+        DateTime.now().toIso8601String().replaceAll(':', '-').split('.')[0];
     final filePath = '${dir.path}/galchat_backup_$timestamp.json';
     final file = File(filePath);
     await file.writeAsString(json);
@@ -194,7 +195,9 @@ class BackupService {
         title: j['title'] as String,
         createdAt: DateTime.parse(j['created_at'] as String),
         updatedAt: DateTime.parse(j['updated_at'] as String),
-        archivedAt: j['archived_at'] != null ? DateTime.parse(j['archived_at'] as String) : null,
+        archivedAt: j['archived_at'] != null
+            ? DateTime.parse(j['archived_at'] as String)
+            : null,
       );
 
   Map<String, dynamic> _messageToJson(Message m) => {
@@ -232,7 +235,9 @@ class BackupService {
         messageId: j['message_id'] as int,
         choiceKey: j['choice_key'] as String,
         choiceText: j['text'] as String,
-        selectedAt: j['selected_at'] != null ? DateTime.parse(j['selected_at'] as String) : null,
+        selectedAt: j['selected_at'] != null
+            ? DateTime.parse(j['selected_at'] as String)
+            : null,
       );
 
   Map<String, dynamic> _gameStateToJson(GameState g) => {

@@ -24,7 +24,8 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
   void initState() {
     super.initState();
     Future.microtask(() async {
-      await ref.read(settingsProvider.notifier).load();
+      await ref.read(settingsLoadProvider.future);
+      await ref.read(settingsProvider.notifier).refreshApiKeyStatus();
       _syncControllers();
       setState(() => _loaded = true);
     });
@@ -34,8 +35,10 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
     final state = ref.read(settingsProvider);
     _baseUrlController.text = state.baseUrl;
     _modelController.text = state.model;
-    _maxTokensController.text = state.maxTokens > 0 ? state.maxTokens.toString() : '';
-    _contextWindowController.text = state.contextWindow > 0 ? state.contextWindow.toString() : '';
+    _maxTokensController.text =
+        state.maxTokens > 0 ? state.maxTokens.toString() : '';
+    _contextWindowController.text =
+        state.contextWindow > 0 ? state.contextWindow.toString() : '';
     _truncateLimitController.text = state.truncateLimit.toString();
   }
 
@@ -72,8 +75,14 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
         ok
-            ? const SnackBar(content: Text('设置已保存喵~ ✨'), backgroundColor: Colors.green, duration: Duration(seconds: 2))
-            : const SnackBar(content: Text('保存失败喵...请重试'), backgroundColor: Colors.red, duration: Duration(seconds: 2)),
+            ? const SnackBar(
+                content: Text('设置已保存喵~ ✨'),
+                backgroundColor: Colors.green,
+                duration: Duration(seconds: 2))
+            : const SnackBar(
+                content: Text('保存失败喵...请重试'),
+                backgroundColor: Colors.red,
+                duration: Duration(seconds: 2)),
       );
     }
   }
@@ -111,7 +120,9 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
           const SizedBox(height: 4),
           Text(
             '选择一个预设将自动填入 API 地址，模型等参数请自行配置',
-            style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface.withOpacity(0.5)),
+            style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.onSurface.withOpacity(0.5)),
           ),
           const SizedBox(height: 10),
           Wrap(
@@ -123,7 +134,9 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
                   preset: preset,
                   selected: state.providerPresetId == preset.id,
                   onTap: () {
-                    ref.read(settingsProvider.notifier).selectProviderPreset(preset);
+                    ref
+                        .read(settingsProvider.notifier)
+                        .selectProviderPreset(preset);
                     _syncControllers();
                   },
                 ),
@@ -140,7 +153,8 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
             controller: _apiKeyController,
             obscureText: state.isApiKeyMasked,
             decoration: InputDecoration(
-              hintText: state.hasApiKey ? '•••••••••••••••• (已设置)' : '输入你的API Key',
+              hintText:
+                  state.hasApiKey ? '•••••••••••••••• (已设置)' : '输入你的API Key',
               labelText: 'API Key',
               border: const OutlineInputBorder(),
               prefixIcon: const Icon(Icons.key),
@@ -149,9 +163,15 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
                 children: [
                   if (state.hasApiKey)
                     IconButton(
-                      icon: Icon(state.isApiKeyMasked ? Icons.visibility_off : Icons.visibility, size: 20),
+                      icon: Icon(
+                          state.isApiKeyMasked
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                          size: 20),
                       tooltip: state.isApiKeyMasked ? '显示' : '隐藏',
-                      onPressed: () => ref.read(settingsProvider.notifier).toggleApiKeyMask(),
+                      onPressed: () => ref
+                          .read(settingsProvider.notifier)
+                          .toggleApiKeyMask(),
                     ),
                   if (state.hasApiKey)
                     IconButton(
@@ -164,10 +184,13 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
                             title: const Text('清除API Key'),
                             content: const Text('确定要清除已保存的API Key吗喵？'),
                             actions: [
-                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+                              TextButton(
+                                  onPressed: () => Navigator.pop(ctx, false),
+                                  child: const Text('取消')),
                               TextButton(
                                 onPressed: () => Navigator.pop(ctx, true),
-                                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                                style: TextButton.styleFrom(
+                                    foregroundColor: Colors.red),
                                 child: const Text('清除'),
                               ),
                             ],
@@ -185,7 +208,9 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
           const SizedBox(height: 6),
           Text(
             'API Key仅保存在设备安全存储中，不会导出到备份文件。',
-            style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface.withOpacity(0.5)),
+            style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.onSurface.withOpacity(0.5)),
           ),
           const SizedBox(height: 18),
 
@@ -203,7 +228,8 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
               border: OutlineInputBorder(),
               prefixIcon: Icon(Icons.link),
             ),
-            onChanged: (val) => ref.read(settingsProvider.notifier).setBaseUrl(val),
+            onChanged: (val) =>
+                ref.read(settingsProvider.notifier).setBaseUrl(val),
           ),
           const SizedBox(height: 12),
 
@@ -219,7 +245,8 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.smart_toy_outlined),
                   ),
-                  onChanged: (val) => ref.read(settingsProvider.notifier).setModel(val),
+                  onChanged: (val) =>
+                      ref.read(settingsProvider.notifier).setModel(val),
                 ),
               ),
               const SizedBox(width: 8),
@@ -230,7 +257,10 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
                       ? null
                       : () => ref.read(settingsProvider.notifier).fetchModels(),
                   child: state.isLoadingModels
-                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2))
                       : const Icon(Icons.cloud_download_outlined, size: 20),
                 ),
               ),
@@ -252,7 +282,9 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
                     padding: const EdgeInsets.all(8),
                     child: Text(
                       '可用模型 (${state.availableModels.length})',
-                      style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface.withOpacity(0.6)),
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: theme.colorScheme.onSurface.withOpacity(0.6)),
                     ),
                   ),
                   const Divider(height: 1),
@@ -266,13 +298,22 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
                         return ListTile(
                           dense: true,
                           selected: isSelected,
-                          title: Text(m.id, style: const TextStyle(fontSize: 13)),
-                          subtitle: m.ownedBy != null ? Text(m.ownedBy!, style: const TextStyle(fontSize: 11)) : null,
-                          trailing: isSelected ? Icon(Icons.check, size: 16, color: theme.colorScheme.primary) : null,
+                          title:
+                              Text(m.id, style: const TextStyle(fontSize: 13)),
+                          subtitle: m.ownedBy != null
+                              ? Text(m.ownedBy!,
+                                  style: const TextStyle(fontSize: 11))
+                              : null,
+                          trailing: isSelected
+                              ? Icon(Icons.check,
+                                  size: 16, color: theme.colorScheme.primary)
+                              : null,
                           onTap: () {
                             _modelController.text = m.id;
                             ref.read(settingsProvider.notifier).setModel(m.id);
-                            ref.read(settingsProvider.notifier).clearAvailableModels();
+                            ref
+                                .read(settingsProvider.notifier)
+                                .clearAvailableModels();
                           },
                         );
                       },
@@ -299,10 +340,14 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
                   max: 2.0,
                   divisions: 20,
                   label: state.temperature.toStringAsFixed(1),
-                  onChanged: (val) => ref.read(settingsProvider.notifier).setTemperature(val),
+                  onChanged: (val) =>
+                      ref.read(settingsProvider.notifier).setTemperature(val),
                 ),
               ),
-              SizedBox(width: 40, child: Text(state.temperature.toStringAsFixed(1), style: const TextStyle(fontWeight: FontWeight.w500))),
+              SizedBox(
+                  width: 40,
+                  child: Text(state.temperature.toStringAsFixed(1),
+                      style: const TextStyle(fontWeight: FontWeight.w500))),
             ],
           ),
 
@@ -319,7 +364,8 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
             ),
             onChanged: (val) {
               final n = int.tryParse(val.trim());
-              if (n != null && n >= 1024) ref.read(settingsProvider.notifier).setContextWindow(n);
+              if (n != null && n >= 1024)
+                ref.read(settingsProvider.notifier).setContextWindow(n);
             },
           ),
           const SizedBox(height: 12),
@@ -337,7 +383,8 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
             ),
             onChanged: (val) {
               final n = int.tryParse(val.trim());
-              if (n != null && n >= 1) ref.read(settingsProvider.notifier).setMaxTokens(n);
+              if (n != null && n >= 1)
+                ref.read(settingsProvider.notifier).setMaxTokens(n);
             },
           ),
           const SizedBox(height: 18),
@@ -356,7 +403,9 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
                   subtitle: 'AI 将历史总结为摘要',
                   icon: Icons.compress,
                   selected: state.truncateStrategy == 'compress',
-                  onTap: () => ref.read(settingsProvider.notifier).setTruncateStrategy('compress'),
+                  onTap: () => ref
+                      .read(settingsProvider.notifier)
+                      .setTruncateStrategy('compress'),
                 ),
               ),
               const SizedBox(width: 8),
@@ -366,7 +415,9 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
                   subtitle: '保留最近 N 轮对话',
                   icon: Icons.content_cut,
                   selected: state.truncateStrategy == 'truncate',
-                  onTap: () => ref.read(settingsProvider.notifier).setTruncateStrategy('truncate'),
+                  onTap: () => ref
+                      .read(settingsProvider.notifier)
+                      .setTruncateStrategy('truncate'),
                 ),
               ),
             ],
@@ -387,7 +438,8 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
               ),
               onChanged: (val) {
                 final n = int.tryParse(val.trim());
-                if (n != null && n >= 1) ref.read(settingsProvider.notifier).setTruncateLimit(n);
+                if (n != null && n >= 1)
+                  ref.read(settingsProvider.notifier).setTruncateLimit(n);
               },
             ),
           ],
@@ -402,9 +454,14 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
             width: double.infinity,
             height: 48,
             child: OutlinedButton.icon(
-              onPressed: state.isTesting ? null : () => ref.read(settingsProvider.notifier).testConnection(),
+              onPressed: state.isTesting
+                  ? null
+                  : () => ref.read(settingsProvider.notifier).testConnection(),
               icon: state.isTesting
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.play_arrow),
               label: Text(state.isTesting ? '测试中...' : '测试连接'),
             ),
@@ -414,15 +471,27 @@ class _ApiSettingsPageState extends ConsumerState<ApiSettingsPage> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: state.testSuccess ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
+                color: state.testSuccess
+                    ? Colors.green.withOpacity(0.1)
+                    : Colors.red.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: (state.testSuccess ? Colors.green : Colors.red).withOpacity(0.3)),
+                border: Border.all(
+                    color: (state.testSuccess ? Colors.green : Colors.red)
+                        .withOpacity(0.3)),
               ),
               child: Row(
                 children: [
-                  Icon(state.testSuccess ? Icons.check_circle : Icons.error, size: 18, color: state.testSuccess ? Colors.green : Colors.red),
+                  Icon(state.testSuccess ? Icons.check_circle : Icons.error,
+                      size: 18,
+                      color: state.testSuccess ? Colors.green : Colors.red),
                   const SizedBox(width: 8),
-                  Expanded(child: Text(state.testResult!, style: TextStyle(fontSize: 13, color: state.testSuccess ? Colors.green[800] : Colors.red[800]))),
+                  Expanded(
+                      child: Text(state.testResult!,
+                          style: TextStyle(
+                              fontSize: 13,
+                              color: state.testSuccess
+                                  ? Colors.green[800]
+                                  : Colors.red[800]))),
                 ],
               ),
             ),
@@ -449,9 +518,13 @@ class _PresetChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final bgColor = selected ? theme.colorScheme.primary : theme.colorScheme.surfaceContainerHighest;
-    final fgColor = selected ? theme.colorScheme.onPrimary : theme.colorScheme.onSurface;
-    final borderColor = selected ? theme.colorScheme.primary : theme.dividerColor;
+    final bgColor = selected
+        ? theme.colorScheme.primary
+        : theme.colorScheme.surfaceContainerHighest;
+    final fgColor =
+        selected ? theme.colorScheme.onPrimary : theme.colorScheme.onSurface;
+    final borderColor =
+        selected ? theme.colorScheme.primary : theme.dividerColor;
 
     return Material(
       color: bgColor,
@@ -468,7 +541,11 @@ class _PresetChip extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(preset.name, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: fgColor)),
+              Text(preset.name,
+                  style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: fgColor)),
               if (selected) ...[
                 const SizedBox(width: 4),
                 Icon(Icons.check_circle, size: 16, color: fgColor),
@@ -500,8 +577,11 @@ class _StrategyChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = selected ? theme.colorScheme.primary : theme.colorScheme.surfaceContainerHighest;
-    final textColor = selected ? theme.colorScheme.onPrimary : theme.colorScheme.onSurface;
+    final color = selected
+        ? theme.colorScheme.primary
+        : theme.colorScheme.surfaceContainerHighest;
+    final textColor =
+        selected ? theme.colorScheme.onPrimary : theme.colorScheme.onSurface;
 
     return Material(
       color: color,
@@ -522,9 +602,16 @@ class _StrategyChip extends StatelessWidget {
             children: [
               Icon(icon, size: 24, color: textColor),
               const SizedBox(height: 6),
-              Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: textColor)),
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: textColor)),
               const SizedBox(height: 2),
-              Text(subtitle, textAlign: TextAlign.center, style: TextStyle(fontSize: 11, color: textColor.withOpacity(0.7))),
+              Text(subtitle,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 11, color: textColor.withOpacity(0.7))),
             ],
           ),
         ),
@@ -545,7 +632,11 @@ class _SectionHeader extends StatelessWidget {
       children: [
         Icon(icon, size: 18, color: theme.colorScheme.primary),
         const SizedBox(width: 8),
-        Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: theme.colorScheme.primary)),
+        Text(title,
+            style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.primary)),
       ],
     );
   }

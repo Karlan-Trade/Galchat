@@ -9,6 +9,21 @@ import '../services/api_key_service.dart';
 import '../constants/prompt_constants.dart';
 import '../services/narrative_tool_runner.dart';
 
+typedef ChatAiProviderFactory = AiProvider Function({
+  required String apiKey,
+  required AiSettings settings,
+});
+
+const String emptyAiResponseFallbackText = '（本地兜底提示）AI 请求没有返回可显示正文喵...'
+    '流式和非流式兜底都没有拿到有效内容。'
+    '这通常是接口超时、网络中断、模型一直停留在思考阶段，'
+    '或 API 返回为空导致的。可以点重试，或关闭思考模式/工具调用后再试。';
+
+const String toolCallInProgressText = '（本地状态提示）初雪正在查阅文件喵...'
+    'AI 正在执行工具调用并等待返回正文。'
+    '如果长时间停留在这里，通常是模型还在持续思考、反复请求读写文件，'
+    '或接口流尚未结束。可以继续等待，或点停止后重试。';
+
 /// Holds the UI state for a single chat conversation.
 class ChatUiState {
   final int conversationId;
@@ -21,6 +36,7 @@ class ChatUiState {
   final String? rawResponse;
   final String streamingText;
   final String streamingReasoning;
+
   /// Last completed reasoning content (saved for review).
   final String lastReasoning;
 
@@ -65,9 +81,13 @@ class ChatUiState {
       isCompressing: isCompressing ?? this.isCompressing,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       rawResponse: clearRawResponse ? null : (rawResponse ?? this.rawResponse),
-      streamingText: clearStreamingText ? '' : (streamingText ?? this.streamingText),
-      streamingReasoning: clearStreamingReasoning ? '' : (streamingReasoning ?? this.streamingReasoning),
-      lastReasoning: clearLastReasoning ? '' : (lastReasoning ?? this.lastReasoning),
+      streamingText:
+          clearStreamingText ? '' : (streamingText ?? this.streamingText),
+      streamingReasoning: clearStreamingReasoning
+          ? ''
+          : (streamingReasoning ?? this.streamingReasoning),
+      lastReasoning:
+          clearLastReasoning ? '' : (lastReasoning ?? this.lastReasoning),
     );
   }
 }
@@ -76,6 +96,9 @@ class ChatNotifier extends ChangeNotifier {
   final AppDatabase _db;
   final ApiKeyService _apiKeyService;
   final AiSettings _aiSettings;
+  final ChatAiProviderFactory _providerFactory;
+  final Duration _streamIdleTimeout;
+  final Duration _fallbackTimeout;
 
   ChatUiState? _state;
   Character? _character;
@@ -92,7 +115,16 @@ class ChatNotifier extends ChangeNotifier {
   bool _toolsEnabled = true;
   NarrativeToolRunner? _toolRunner;
 
-  ChatNotifier(this._db, this._apiKeyService, this._aiSettings);
+  ChatNotifier(
+    this._db,
+    this._apiKeyService,
+    this._aiSettings, {
+    ChatAiProviderFactory providerFactory = createAiProvider,
+    Duration streamIdleTimeout = const Duration(seconds: 30),
+    Duration fallbackTimeout = const Duration(seconds: 45),
+  })  : _providerFactory = providerFactory,
+        _streamIdleTimeout = streamIdleTimeout,
+        _fallbackTimeout = fallbackTimeout;
 
   /// Enable AI tool calling for narrative file read/write.
   void enableFileTools(NarrativeToolRunner runner) => _toolRunner = runner;
@@ -123,7 +155,8 @@ class ChatNotifier extends ChangeNotifier {
     }
 
     buf.writeln('══════ 总计 ══════');
-    final totalChars = sp.length + nonSys.fold(0, (s, m) => s + m.content.length);
+    final totalChars =
+        sp.length + nonSys.fold(0, (s, m) => s + m.content.length);
     buf.writeln('System Prompt: ${sp.length} 字符');
     buf.writeln('对话历史: ${nonSys.length} 条');
     buf.writeln('总字符数: $totalChars');
@@ -192,7 +225,8 @@ class ChatNotifier extends ChangeNotifier {
           createdAt: Value(DateTime.now()),
         ));
         await _db.touchConversation(current.conversationId);
-        final updatedMessages = await _db.getMessagesByConversation(current.conversationId);
+        final updatedMessages =
+            await _db.getMessagesByConversation(current.conversationId);
         _state = _state!.copyWith(
           messages: updatedMessages,
           isLoading: false,
@@ -201,10 +235,18 @@ class ChatNotifier extends ChangeNotifier {
           lastReasoning: partialReasoning,
         );
       } catch (e) {
-        _state = _state!.copyWith(isLoading: false, clearStreamingText: true, clearStreamingReasoning: true);
+        _state = _state!.copyWith(
+            isLoading: false,
+            clearStreamingText: true,
+            clearStreamingReasoning: true);
       }
     } else {
-      _state = _state!.copyWith(isLoading: false, clearStreamingText: true, clearStreamingReasoning: true);
+      _state = _state!.copyWith(
+        isLoading: false,
+        clearStreamingText: true,
+        clearStreamingReasoning: true,
+        lastReasoning: partialReasoning,
+      );
     }
     notifyListeners();
   }
@@ -214,7 +256,10 @@ class ChatNotifier extends ChangeNotifier {
     _cancelStreamSubscription();
     // Reset loading state so stale operations don't corrupt the new session.
     if (_state?.isLoading == true) {
-      _state = _state!.copyWith(isLoading: false, clearStreamingText: true, clearStreamingReasoning: true);
+      _state = _state!.copyWith(
+          isLoading: false,
+          clearStreamingText: true,
+          clearStreamingReasoning: true);
     }
 
     final conv = await _db.getConversationById(conversationId);
@@ -225,7 +270,11 @@ class ChatNotifier extends ChangeNotifier {
     final choices = await _db.getChoicesByConversation(conversationId);
     final pendingChoices = choices.where((c) => c.selectedAt == null).toList();
 
-    _state = ChatUiState(conversationId: conversationId, characterId: conv.characterId, messages: messages, pendingChoices: pendingChoices);
+    _state = ChatUiState(
+        conversationId: conversationId,
+        characterId: conv.characterId,
+        messages: messages,
+        pendingChoices: pendingChoices);
     notifyListeners();
 
     // Trigger AI to send the first message if conversation is empty and toggle is on
@@ -248,17 +297,19 @@ class ChatNotifier extends ChangeNotifier {
       final aiSettings = _aiSettings;
 
       if (apiKey == null || apiKey.isEmpty) {
-        _state = _state!.copyWith(isLoading: false, errorMessage: '请先在设置中配置API Key喵~');
+        _state = _state!
+            .copyWith(isLoading: false, errorMessage: '请先在设置中配置API Key喵~');
         notifyListeners();
         return;
       }
 
       _character ??= await _db.getCharacterById(current.characterId);
 
-      final provider = createAiProvider(apiKey: apiKey, settings: aiSettings)
+      final provider = _providerFactory(apiKey: apiKey, settings: aiSettings)
         ..setThinkingEnabled(_thinkingEnabled);
       // Sync tool calling to the tools toggle (same as a normal turn).
-      if (_toolRunner != null && _toolsEnabled) provider.enableTools(_toolRunner!);
+      if (_toolRunner != null && _toolsEnabled)
+        provider.enableTools(_toolRunner!);
 
       // includeTools defaults to true; _buildSystemPrompt only injects tool
       // instructions when _toolsEnabled is also on, so this stays in sync.
@@ -272,10 +323,11 @@ class ChatNotifier extends ChangeNotifier {
         allHistory: const [],
         userMessage: _openingPrompt ?? '',
         provider: provider,
-        emptyFallbackText: '喵~ 初次见面，请多关照！',
+        emptyFallbackText: defaultCharacterGreeting,
       );
     } catch (e) {
-      _state = _state!.copyWith(isLoading: false, errorMessage: '初雪还在准备喵... $e');
+      _state =
+          _state!.copyWith(isLoading: false, errorMessage: '初雪还在准备喵... $e');
       notifyListeners();
     }
   }
@@ -316,10 +368,9 @@ class ChatNotifier extends ChangeNotifier {
       var loopHistory = List<Map<String, String>>.from(allHistory);
       var loopUserMessage = userMessage;
       List<Map<String, dynamic>>? loopToolResults;
-      const maxToolLoops = 5;
       var toolLoopCount = 0;
 
-      while (toolLoopCount < maxToolLoops) {
+      while (true) {
         if (_isDisposed) return;
         toolLoopCount++;
         streamingCompleted = false;
@@ -338,7 +389,7 @@ class ChatNotifier extends ChangeNotifier {
 
         // Only update streamingText on second+ loop iteration
         if (toolLoopCount > 1 && !_isDisposed) {
-          _state = _state!.copyWith(streamingText: '（初雪正在查阅文件喵...）');
+          _state = _state!.copyWith(streamingText: toolCallInProgressText);
           notifyListeners();
         }
 
@@ -348,7 +399,8 @@ class ChatNotifier extends ChangeNotifier {
         // can be cancelled externally via _cancelStreamSubscription().
         final completer = Completer<void>();
         _streamCompleter = completer;
-        _streamSubscription = stream.timeout(const Duration(seconds: 30)).listen(
+
+        _streamSubscription = stream.timeout(_streamIdleTimeout).listen(
           (chunk) {
             if (_isDisposed) {
               if (!completer.isCompleted) completer.complete();
@@ -366,7 +418,8 @@ class ChatNotifier extends ChangeNotifier {
             if (chunk.reasoningDelta.isNotEmpty) {
               reasoningContent.write(chunk.reasoningDelta);
               if (_state?.isLoading == true) {
-                _state = _state!.copyWith(streamingReasoning: reasoningContent.toString());
+                _state = _state!
+                    .copyWith(streamingReasoning: reasoningContent.toString());
                 notifyListeners();
               }
             }
@@ -398,6 +451,7 @@ class ChatNotifier extends ChangeNotifier {
         );
 
         await completer.future;
+        _streamSubscription = null;
         _streamCompleter = null;
 
         if (_isDisposed) return;
@@ -411,14 +465,16 @@ class ChatNotifier extends ChangeNotifier {
           toolResultMessages.add({
             'role': 'assistant',
             'content': null,
-            'tool_calls': pendingToolCalls.map((tc) => {
-              'id': tc.id,
-              'type': 'function',
-              'function': {
-                'name': tc.name,
-                'arguments': json.encode(tc.arguments),
-              },
-            }).toList(),
+            'tool_calls': pendingToolCalls
+                .map((tc) => {
+                      'id': tc.id,
+                      'type': 'function',
+                      'function': {
+                        'name': tc.name,
+                        'arguments': json.encode(tc.arguments),
+                      },
+                    })
+                .toList(),
           });
 
           for (final tc in pendingToolCalls) {
@@ -445,16 +501,19 @@ class ChatNotifier extends ChangeNotifier {
       if (hasStreamed && fullContent.isNotEmpty) {
         _state = _state!.copyWith(lastReasoning: reasoningContent.toString());
         notifyListeners();
-        await _processAiResponse(conversationId, fullContent.toString(), provider, baseRequest);
+        await _processAiResponse(
+            conversationId, fullContent.toString(), provider, baseRequest);
       } else if (!hasStreamed && fullContent.isEmpty) {
-        await _fallbackNonStreaming(conversationId, provider, baseRequest, emptyFallbackText);
+        await _fallbackNonStreaming(
+            conversationId, provider, baseRequest, emptyFallbackText);
       }
     } catch (e) {
       if (_isDisposed) return;
       if (_cancelled) return;
       _streamSubscription = null;
       if (!streamingCompleted) {
-        await _fallbackNonStreaming(conversationId, provider, baseRequest, fullContent.toString());
+        await _fallbackNonStreaming(
+            conversationId, provider, baseRequest, fullContent.toString());
       }
     }
   }
@@ -466,7 +525,12 @@ class ChatNotifier extends ChangeNotifier {
     // Cancel any stale stream from a previous page session.
     _cancelStreamSubscription();
 
-    _state = current.copyWith(isLoading: true, clearError: true, clearRawResponse: true, clearStreamingText: true, clearStreamingReasoning: true);
+    _state = current.copyWith(
+        isLoading: true,
+        clearError: true,
+        clearRawResponse: true,
+        clearStreamingText: true,
+        clearStreamingReasoning: true);
     notifyListeners();
 
     try {
@@ -481,13 +545,15 @@ class ChatNotifier extends ChangeNotifier {
       await _db.touchConversation(current.conversationId);
 
       // Expire old choices
-      final oldChoices = await _db.getChoicesByConversation(current.conversationId);
+      final oldChoices =
+          await _db.getChoicesByConversation(current.conversationId);
       for (final c in oldChoices.where((c) => c.selectedAt == null)) {
         await _db.markChoiceSelected(c.id);
       }
 
       // Build history
-      final allMessages = await _db.getMessagesByConversation(current.conversationId);
+      final allMessages =
+          await _db.getMessagesByConversation(current.conversationId);
       final nonSystem = allMessages.where((m) => m.role != 'system').toList();
 
       // Apply truncation strategy
@@ -509,22 +575,26 @@ class ChatNotifier extends ChangeNotifier {
 
       final apiKey = await _apiKeyService.getApiKey();
       if (apiKey == null || apiKey.isEmpty) {
-        _state = _state!.copyWith(isLoading: false, errorMessage: '请先在设置中配置API Key喵~');
+        _state = _state!
+            .copyWith(isLoading: false, errorMessage: '请先在设置中配置API Key喵~');
         notifyListeners();
         return;
       }
 
-      if (_character == null) _character = await _db.getCharacterById(current.characterId);
+      if (_character == null)
+        _character = await _db.getCharacterById(current.characterId);
 
-      final provider = createAiProvider(apiKey: apiKey, settings: _aiSettings)
+      final provider = _providerFactory(apiKey: apiKey, settings: _aiSettings)
         ..setThinkingEnabled(_thinkingEnabled);
       // Enable file tools if runner is available and tools are enabled
-      if (_toolRunner != null && _toolsEnabled) provider.enableTools(_toolRunner!);
+      if (_toolRunner != null && _toolsEnabled)
+        provider.enableTools(_toolRunner!);
 
       final systemPrompt = _buildSystemPrompt();
 
       // Refresh message list after user message
-      final refreshedMessages = await _db.getMessagesByConversation(current.conversationId);
+      final refreshedMessages =
+          await _db.getMessagesByConversation(current.conversationId);
       _state = _state!.copyWith(messages: refreshedMessages);
       notifyListeners();
 
@@ -546,10 +616,20 @@ class ChatNotifier extends ChangeNotifier {
         provider: provider,
       );
     } on AiAuthException catch (e) {
-      _state = _state!.copyWith(isLoading: false, errorMessage: e.message, clearStreamingText: true);
+      _state = _state!.copyWith(
+        isLoading: false,
+        errorMessage: e.message,
+        clearStreamingText: true,
+        clearStreamingReasoning: true,
+      );
       notifyListeners();
     } catch (e) {
-      _state = _state!.copyWith(isLoading: false, errorMessage: '发送失败喵... $e', clearStreamingText: true);
+      _state = _state!.copyWith(
+        isLoading: false,
+        errorMessage: '发送失败喵... $e',
+        clearStreamingText: true,
+        clearStreamingReasoning: true,
+      );
       notifyListeners();
     }
   }
@@ -561,7 +641,8 @@ class ChatNotifier extends ChangeNotifier {
     AiProvider provider,
     AiTurnRequest request,
   ) async {
-    if (_cancelled) return; // User cancelled — cancelGeneration() handles saving
+    if (_cancelled)
+      return; // User cancelled — cancelGeneration() handles saving
     if (generatedText.isEmpty) {
       await _fallbackNonStreaming(conversationId, provider, request, '');
       return;
@@ -597,12 +678,13 @@ class ChatNotifier extends ChangeNotifier {
   ) async {
     if (_cancelled) return;
     try {
-      final result = await provider.sendTurn(request);
+      final result = await provider.sendTurn(request).timeout(_fallbackTimeout);
       final responseText = result.messages.isNotEmpty
           ? result.messages.map((m) => m.text).join('\n')
           : result.rawText ?? streamedSoFar;
 
-      final effectiveText = responseText.isNotEmpty ? responseText : '（初雪打了个盹喵...）';
+      final effectiveText =
+          responseText.isNotEmpty ? responseText : emptyAiResponseFallbackText;
 
       await _db.insertMessage(MessagesCompanion(
         conversationId: Value(conversationId),
@@ -614,19 +696,31 @@ class ChatNotifier extends ChangeNotifier {
 
       await _db.touchConversation(conversationId);
 
-      final updatedMessages = await _db.getMessagesByConversation(conversationId);
+      final updatedMessages =
+          await _db.getMessagesByConversation(conversationId);
 
       _state = _state!.copyWith(
         messages: updatedMessages,
         isLoading: false,
         clearStreamingText: true,
+        clearStreamingReasoning: true,
       );
       notifyListeners();
     } catch (e) {
       if (e is AiAuthException) {
-        _state = _state!.copyWith(isLoading: false, errorMessage: e.message, clearStreamingText: true);
+        _state = _state!.copyWith(
+          isLoading: false,
+          errorMessage: e.message,
+          clearStreamingText: true,
+          clearStreamingReasoning: true,
+        );
       } else {
-        _state = _state!.copyWith(isLoading: false, errorMessage: '发送失败喵... $e', clearStreamingText: true);
+        _state = _state!.copyWith(
+          isLoading: false,
+          errorMessage: '发送失败喵... $e',
+          clearStreamingText: true,
+          clearStreamingReasoning: true,
+        );
       }
       notifyListeners();
     }
@@ -648,22 +742,29 @@ class ChatNotifier extends ChangeNotifier {
     if (nonSys.isEmpty) return;
 
     // Find the last user message (what we're regenerating from).
-    final lastUser = nonSys.lastWhere((m) => m.role == 'user', orElse: () => nonSys.first);
+    final lastUser =
+        nonSys.lastWhere((m) => m.role == 'user', orElse: () => nonSys.first);
     if (lastUser.role != 'user') return; // No user message to regenerate from
 
     // Delete the last AI message so we can replace it.
-    final lastAi = nonSys.lastWhere((m) => m.role == 'assistant', orElse: () => nonSys.first);
+    final lastAi = nonSys.lastWhere((m) => m.role == 'assistant',
+        orElse: () => nonSys.first);
     if (lastAi.role == 'assistant') {
       await _db.deleteMessage(lastAi.id);
     }
 
     // Reload messages from DB (now without the deleted AI message).
-    final refreshedMessages = await _db.getMessagesByConversation(current.conversationId);
-    final refreshedNonSys = refreshedMessages.where((m) => m.role != 'system').toList();
+    final refreshedMessages =
+        await _db.getMessagesByConversation(current.conversationId);
+    final refreshedNonSys =
+        refreshedMessages.where((m) => m.role != 'system').toList();
 
     _state = current.copyWith(
-      isLoading: true, clearError: true, clearRawResponse: true,
-      clearStreamingText: true, clearStreamingReasoning: true,
+      isLoading: true,
+      clearError: true,
+      clearRawResponse: true,
+      clearStreamingText: true,
+      clearStreamingReasoning: true,
       messages: refreshedMessages,
     );
     notifyListeners();
@@ -681,16 +782,19 @@ class ChatNotifier extends ChangeNotifier {
 
       final apiKey = await _apiKeyService.getApiKey();
       if (apiKey == null || apiKey.isEmpty) {
-        _state = _state!.copyWith(isLoading: false, errorMessage: '请先在设置中配置API Key喵~');
+        _state = _state!
+            .copyWith(isLoading: false, errorMessage: '请先在设置中配置API Key喵~');
         notifyListeners();
         return;
       }
 
-      if (_character == null) _character = await _db.getCharacterById(current.characterId);
+      if (_character == null)
+        _character = await _db.getCharacterById(current.characterId);
 
-      final provider = createAiProvider(apiKey: apiKey, settings: _aiSettings)
+      final provider = _providerFactory(apiKey: apiKey, settings: _aiSettings)
         ..setThinkingEnabled(_thinkingEnabled);
-      if (_toolRunner != null && _toolsEnabled) provider.enableTools(_toolRunner!);
+      if (_toolRunner != null && _toolsEnabled)
+        provider.enableTools(_toolRunner!);
 
       final systemPrompt = _buildSystemPrompt();
 
@@ -702,10 +806,14 @@ class ChatNotifier extends ChangeNotifier {
         provider: provider,
       );
     } on AiAuthException catch (e) {
-      _state = _state!.copyWith(isLoading: false, errorMessage: e.message, clearStreamingText: true);
+      _state = _state!.copyWith(
+          isLoading: false, errorMessage: e.message, clearStreamingText: true);
       notifyListeners();
     } catch (e) {
-      _state = _state!.copyWith(isLoading: false, errorMessage: '重新生成失败喵... $e', clearStreamingText: true);
+      _state = _state!.copyWith(
+          isLoading: false,
+          errorMessage: '重新生成失败喵... $e',
+          clearStreamingText: true);
       notifyListeners();
     }
   }
@@ -716,7 +824,8 @@ class ChatNotifier extends ChangeNotifier {
     if (current == null || current.isLoading) return;
 
     final msgs = await _db.getMessagesByConversation(current.conversationId);
-    final sorted = msgs.toList()..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    final sorted = msgs.toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
     final idx = sorted.indexWhere((m) => m.id == messageId);
     if (idx < 0) return;
 
@@ -743,12 +852,14 @@ class ChatNotifier extends ChangeNotifier {
     try {
       final apiKey = await _apiKeyService.getApiKey();
       if (apiKey == null || apiKey.isEmpty) {
-        _state = _state!.copyWith(isCompressing: false, errorMessage: '请先配置API Key喵~');
+        _state = _state!
+            .copyWith(isCompressing: false, errorMessage: '请先配置API Key喵~');
         notifyListeners();
         return;
       }
 
-      final allMessages = await _db.getMessagesByConversation(current.conversationId);
+      final allMessages =
+          await _db.getMessagesByConversation(current.conversationId);
       final nonSystem = allMessages.where((m) => m.role != 'system').toList();
 
       // Need at least 4 turns (8 messages) for compression to be worthwhile
@@ -767,9 +878,10 @@ class ChatNotifier extends ChangeNotifier {
           .map((m) => {'role': m.role, 'content': m.content})
           .toList();
 
-      if (_character == null) _character = await _db.getCharacterById(current.characterId);
+      if (_character == null)
+        _character = await _db.getCharacterById(current.characterId);
 
-      final provider = createAiProvider(apiKey: apiKey, settings: _aiSettings)
+      final provider = _providerFactory(apiKey: apiKey, settings: _aiSettings)
         ..setThinkingEnabled(_thinkingEnabled);
       final summary = await provider.compressHistory(
         systemPrompt: _character?.systemPrompt ?? '',
@@ -793,7 +905,8 @@ class ChatNotifier extends ChangeNotifier {
           role: const Value('system'),
           speaker: const Value(''),
           content: Value('[上下文摘要]\n$summary'),
-          createdAt: Value(toKeep.first.createdAt.subtract(const Duration(seconds: 1))),
+          createdAt: Value(
+              toKeep.first.createdAt.subtract(const Duration(seconds: 1))),
         ));
       });
 
@@ -802,14 +915,17 @@ class ChatNotifier extends ChangeNotifier {
       _state = _state!.copyWith(isCompressing: false);
       notifyListeners();
     } catch (e) {
-      _state = _state!.copyWith(isCompressing: false, errorMessage: '压缩失败喵: $e');
+      _state =
+          _state!.copyWith(isCompressing: false, errorMessage: '压缩失败喵: $e');
       notifyListeners();
     }
   }
 
   String _buildSystemPrompt({bool includeTools = true}) {
     final charPrompt = _character?.systemPrompt ?? '';
-    final dialogue = (_includeExampleDialogue && _exampleDialogue != null && _exampleDialogue!.isNotEmpty)
+    final dialogue = (_includeExampleDialogue &&
+            _exampleDialogue != null &&
+            _exampleDialogue!.isNotEmpty)
         ? '\n## 示例对话（请严格遵循此格式）\n\n$_exampleDialogue\n'
         : '';
     final tools = (_toolsEnabled && includeTools) ? toolInstructions : '';
