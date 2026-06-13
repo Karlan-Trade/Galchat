@@ -623,21 +623,80 @@ class ChatNotifier extends ChangeNotifier {
 
   Future<void> retry() async => await regenerate();
 
-  /// Delete the last AI message and resend the last user message.
+  /// Delete the last AI message and regenerate a new response for the last
+  /// user message WITHOUT inserting a duplicate user message into the DB.
   Future<void> regenerate() async {
     final current = _state;
     if (current == null || current.isLoading) return;
+
+    // Cancel any stale stream from a previous page session.
+    _cancelStreamSubscription();
 
     final msgs = await _db.getMessagesByConversation(current.conversationId);
     final nonSys = msgs.where((m) => m.role != 'system').toList();
     if (nonSys.isEmpty) return;
 
+    // Find the last user message (what we're regenerating from).
     final lastUser = nonSys.lastWhere((m) => m.role == 'user', orElse: () => nonSys.first);
-    final lastAi = nonSys.lastWhere((m) => m.role == 'assistant', orElse: () => nonSys.first);
-    if (lastAi.role == 'assistant') await _db.deleteMessage(lastAi.id);
+    if (lastUser.role != 'user') return; // No user message to regenerate from
 
-    await loadConversation(current.conversationId);
-    await sendMessage(lastUser.content);
+    // Delete the last AI message so we can replace it.
+    final lastAi = nonSys.lastWhere((m) => m.role == 'assistant', orElse: () => nonSys.first);
+    if (lastAi.role == 'assistant') {
+      await _db.deleteMessage(lastAi.id);
+    }
+
+    // Reload messages from DB (now without the deleted AI message).
+    final refreshedMessages = await _db.getMessagesByConversation(current.conversationId);
+    final refreshedNonSys = refreshedMessages.where((m) => m.role != 'system').toList();
+
+    _state = current.copyWith(
+      isLoading: true, clearError: true, clearRawResponse: true,
+      clearStreamingText: true, clearStreamingReasoning: true,
+      messages: refreshedMessages,
+    );
+    notifyListeners();
+
+    try {
+      // Build history — exclude the last user message since it's passed
+      // separately as userMessage (same convention as sendMessage).
+      final allHistory = <Map<String, String>>[];
+      for (final m in refreshedNonSys) {
+        allHistory.add({'role': m.role, 'content': m.content});
+      }
+      if (allHistory.isNotEmpty && allHistory.last['role'] == 'user') {
+        allHistory.removeLast();
+      }
+
+      final apiKey = await _apiKeyService.getApiKey();
+      if (apiKey == null || apiKey.isEmpty) {
+        _state = _state!.copyWith(isLoading: false, errorMessage: '请先在设置中配置API Key喵~');
+        notifyListeners();
+        return;
+      }
+
+      if (_character == null) _character = await _db.getCharacterById(current.characterId);
+
+      final provider = createAiProvider(apiKey: apiKey, settings: _aiSettings)
+        ..setThinkingEnabled(_thinkingEnabled);
+      if (_toolRunner != null && _toolsEnabled) provider.enableTools(_toolRunner!);
+
+      final systemPrompt = _buildSystemPrompt();
+
+      await _streamTurnWithTools(
+        conversationId: current.conversationId,
+        systemPrompt: systemPrompt,
+        allHistory: allHistory,
+        userMessage: lastUser.content,
+        provider: provider,
+      );
+    } on AiAuthException catch (e) {
+      _state = _state!.copyWith(isLoading: false, errorMessage: e.message, clearStreamingText: true);
+      notifyListeners();
+    } catch (e) {
+      _state = _state!.copyWith(isLoading: false, errorMessage: '重新生成失败喵... $e', clearStreamingText: true);
+      notifyListeners();
+    }
   }
 
   /// Edit a user message and resend from that point, deleting all later messages.
