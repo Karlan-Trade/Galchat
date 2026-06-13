@@ -2,15 +2,18 @@ import 'package:flutter/material.dart';
 
 /// Text input bar for the chat page.
 ///
-/// Shows a text field with a send button and optional loading indicator.
+/// Shows a text field with a send button that turns into a cancel/stop button
+/// while the AI is generating a response.
 class MessageInput extends StatefulWidget {
   final bool isLoading;
   final void Function(String text) onSend;
+  final VoidCallback? onCancel;
 
   const MessageInput({
     super.key,
     required this.isLoading,
     required this.onSend,
+    this.onCancel,
   });
 
   @override
@@ -103,11 +106,14 @@ class _MessageInputState extends State<MessageInput> {
 
           const SizedBox(width: 8),
 
-          // Send button
+          // Send / Cancel button
           AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             child: widget.isLoading
-                ? _LoadingButton(theme: theme)
+                ? _CancelButton(
+                    theme: theme,
+                    onTap: widget.onCancel,
+                  )
                 : _SendButton(
                     theme: theme,
                     enabled: _canSend,
@@ -157,27 +163,28 @@ class _SendButton extends StatelessWidget {
   }
 }
 
-class _LoadingButton extends StatelessWidget {
+class _CancelButton extends StatelessWidget {
   final ThemeData theme;
+  final VoidCallback? onTap;
 
-  const _LoadingButton({required this.theme});
+  const _CancelButton({required this.theme, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 44,
-      height: 44,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: theme.colorScheme.primary.withOpacity(0.3),
-      ),
-      alignment: Alignment.center,
-      child: SizedBox(
-        width: 20,
-        height: 20,
-        child: CircularProgressIndicator(
-          strokeWidth: 2.5,
-          color: theme.colorScheme.primary,
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.red.withOpacity(0.85),
+        ),
+        alignment: Alignment.center,
+        child: const Icon(
+          Icons.stop_rounded,
+          size: 24,
+          color: Colors.white,
         ),
       ),
     );

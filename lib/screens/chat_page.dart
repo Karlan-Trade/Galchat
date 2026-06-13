@@ -81,6 +81,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   void _handleSend(String text) => _chatNotifier?.sendMessage(text);
+  void _handleCancel() => _chatNotifier?.cancelGeneration();
 
   Future<void> _showPromptPreview() async {
     final prompt = await _chatNotifier?.buildFullPrompt() ?? '(加载中...)';
@@ -375,7 +376,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               onTap: _handleChoiceTap,
             ),
 
-          MessageInput(isLoading: chatState.isLoading, onSend: _handleSend),
+          MessageInput(isLoading: chatState.isLoading, onSend: _handleSend, onCancel: _handleCancel),
         ],
       ),
     );

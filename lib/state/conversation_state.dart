@@ -6,11 +6,15 @@ class ConversationListState {
   final List<Conversation> conversations;
   final bool isLoading;
   final String? errorMessage;
+  final bool isSelectionMode;
+  final Set<int> selectedIds;
 
   const ConversationListState({
     this.conversations = const [],
     this.isLoading = false,
     this.errorMessage,
+    this.isSelectionMode = false,
+    this.selectedIds = const {},
   });
 
   ConversationListState copyWith({
@@ -18,11 +22,15 @@ class ConversationListState {
     bool? isLoading,
     String? errorMessage,
     bool clearError = false,
+    bool? isSelectionMode,
+    Set<int>? selectedIds,
   }) {
     return ConversationListState(
       conversations: conversations ?? this.conversations,
       isLoading: isLoading ?? this.isLoading,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
+      isSelectionMode: isSelectionMode ?? this.isSelectionMode,
+      selectedIds: selectedIds ?? this.selectedIds,
     );
   }
 }
@@ -99,6 +107,57 @@ class ConversationListNotifier extends StateNotifier<ConversationListState> {
       await loadConversations();
     } catch (e) {
       state = state.copyWith(errorMessage: '归档失败喵: $e');
+    }
+  }
+
+  // ──────────── Batch selection ────────────
+
+  /// Enter or exit selection mode.
+  void toggleSelectionMode() {
+    if (state.isSelectionMode) {
+      state = state.copyWith(isSelectionMode: false, selectedIds: const {});
+    } else {
+      state = state.copyWith(isSelectionMode: true, selectedIds: const {});
+    }
+  }
+
+  /// Toggle a single conversation's selection state.
+  void toggleSelection(int id) {
+    final ids = Set<int>.from(state.selectedIds);
+    if (ids.contains(id)) {
+      ids.remove(id);
+    } else {
+      ids.add(id);
+    }
+    state = state.copyWith(selectedIds: ids);
+  }
+
+  /// Select all conversations.
+  void selectAll() {
+    state = state.copyWith(
+      selectedIds: state.conversations.map((c) => c.id).toSet(),
+    );
+  }
+
+  /// Deselect all conversations.
+  void deselectAll() {
+    state = state.copyWith(selectedIds: const {});
+  }
+
+  /// Delete all selected conversations.
+  Future<void> batchDelete() async {
+    final ids = state.selectedIds.toList();
+    if (ids.isEmpty) return;
+
+    state = state.copyWith(clearError: true);
+    try {
+      for (final id in ids) {
+        await _db.deleteConversation(id);
+      }
+      state = state.copyWith(isSelectionMode: false, selectedIds: const {});
+      await loadConversations();
+    } catch (e) {
+      state = state.copyWith(errorMessage: '批量删除失败喵: $e');
     }
   }
 }

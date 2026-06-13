@@ -101,24 +101,74 @@ class _ConversationListPageState extends ConsumerState<ConversationListPage> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final state = ref.watch(conversationListProvider);
+  void _confirmBatchDelete() {
+    final state = ref.read(conversationListProvider);
+    final count = state.selectedIds.length;
+    if (count == 0) return;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('初雪 · GalChat'),
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认批量删除'),
+        content: Text('确定要删除选中的 $count 个对话吗？删除后将无法恢复喵...'),
         actions: [
-          // Settings button
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            tooltip: '设置',
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
             onPressed: () {
-              Navigator.pushNamed(context, '/settings');
+              ref.read(conversationListProvider.notifier).batchDelete();
+              Navigator.pop(ctx);
             },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('删除'),
           ),
         ],
       ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(conversationListProvider);
+    final notifier = ref.read(conversationListProvider.notifier);
+    final theme = Theme.of(context);
+
+    return Scaffold(
+      appBar: state.isSelectionMode
+          ? AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.close),
+                tooltip: '退出选择',
+                onPressed: notifier.toggleSelectionMode,
+              ),
+              title: Text('已选 ${state.selectedIds.length} 项'),
+              actions: [
+                TextButton(
+                  onPressed: state.selectedIds.length == state.conversations.length
+                      ? notifier.deselectAll
+                      : notifier.selectAll,
+                  child: Text(
+                    state.selectedIds.length == state.conversations.length ? '取消全选' : '全选',
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.delete, color: state.selectedIds.isEmpty ? null : Colors.red),
+                  tooltip: '删除选中',
+                  onPressed: state.selectedIds.isEmpty ? null : _confirmBatchDelete,
+                ),
+              ],
+            )
+          : AppBar(
+              title: const Text('初雪 · GalChat'),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.settings_outlined),
+                  tooltip: '设置',
+                  onPressed: () {
+                    Navigator.pushNamed(context, '/settings');
+                  },
+                ),
+              ],
+            ),
       body: state.isLoading
           ? const Center(child: CircularProgressIndicator())
           : state.conversations.isEmpty
@@ -130,22 +180,33 @@ class _ConversationListPageState extends ConsumerState<ConversationListPage> {
                     if (index < state.conversations.length) {
                       return _ConversationTile(
                         conversation: state.conversations[index],
+                        isSelectionMode: state.isSelectionMode,
+                        isSelected: state.selectedIds.contains(state.conversations[index].id),
                         onTap: () => _openConversation(state.conversations[index].id),
                         onDelete: () => _deleteConversation(state.conversations[index].id),
                         onRename: (newTitle) =>
                             ref.read(conversationListProvider.notifier)
                                 .renameConversation(state.conversations[index].id, newTitle),
+                        onToggleSelect: () => notifier.toggleSelection(state.conversations[index].id),
+                        onLongPress: () {
+                          if (!state.isSelectionMode) {
+                            notifier.toggleSelectionMode();
+                            notifier.toggleSelection(state.conversations[index].id);
+                          }
+                        },
                       );
                     }
-                    // Bottom padding for FAB
-                    return const SizedBox(height: 80);
+                    // Bottom padding for FAB (hidden in selection mode)
+                    return SizedBox(height: state.isSelectionMode ? 0 : 80);
                   },
                 ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _createAndEnter,
-        icon: const Icon(Icons.add),
-        label: const Text('新对话'),
-      ),
+      floatingActionButton: state.isSelectionMode
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _createAndEnter,
+              icon: const Icon(Icons.add),
+              label: const Text('新对话'),
+            ),
     );
   }
 }
@@ -204,15 +265,23 @@ class _EmptyState extends StatelessWidget {
 /// A single conversation tile in the list.
 class _ConversationTile extends StatelessWidget {
   final Conversation conversation;
+  final bool isSelectionMode;
+  final bool isSelected;
   final VoidCallback onTap;
   final VoidCallback onDelete;
+  final VoidCallback onToggleSelect;
+  final VoidCallback onLongPress;
   final void Function(String newTitle) onRename;
 
   const _ConversationTile({
     required this.conversation,
+    required this.isSelectionMode,
+    required this.isSelected,
     required this.onTap,
     required this.onDelete,
     required this.onRename,
+    required this.onToggleSelect,
+    required this.onLongPress,
   });
 
   void _showRenameDialog(BuildContext context) {
@@ -247,6 +316,54 @@ class _ConversationTile extends StatelessWidget {
     final date = conversation.updatedAt;
     final dateStr = _formatDate(date);
 
+    Widget tile = Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      elevation: 0,
+      color: isSelected ? theme.colorScheme.primary.withOpacity(0.08) : null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: isSelected
+              ? theme.colorScheme.primary.withOpacity(0.4)
+              : theme.dividerColor.withOpacity(0.3),
+        ),
+      ),
+      child: InkWell(
+        onTap: isSelectionMode ? onToggleSelect : onTap,
+        onLongPress: isSelectionMode ? null : onLongPress,
+        borderRadius: BorderRadius.circular(12),
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          leading: isSelectionMode
+              ? Checkbox(
+                  value: isSelected,
+                  onChanged: (_) => onToggleSelect(),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                )
+              : CircleAvatar(
+                  backgroundColor: theme.colorScheme.primaryContainer,
+                  child: Icon(Icons.chat, color: theme.colorScheme.onPrimaryContainer, size: 20),
+                ),
+          title: Text(conversation.title, style: const TextStyle(fontWeight: FontWeight.w500)),
+          subtitle: Text(dateStr, style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface.withOpacity(0.5))),
+          trailing: isSelectionMode
+              ? null
+              : PopupMenuButton<String>(
+                  onSelected: (action) {
+                    if (action == 'rename') _showRenameDialog(context);
+                    if (action == 'delete') onDelete();
+                  },
+                  itemBuilder: (ctx) => [
+                    const PopupMenuItem(value: 'rename', child: ListTile(leading: Icon(Icons.edit), title: Text('重命名'), contentPadding: EdgeInsets.zero)),
+                    const PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete, color: Colors.red), title: Text('删除', style: TextStyle(color: Colors.red)), contentPadding: EdgeInsets.zero)),
+                  ],
+                ),
+        ),
+      ),
+    );
+
+    // Wrap with Dismissible only when not in selection mode
+    if (isSelectionMode) return tile;
     return Dismissible(
       key: Key('conv_${conversation.id}'),
       direction: DismissDirection.endToStart,
@@ -257,38 +374,7 @@ class _ConversationTile extends StatelessWidget {
         color: Colors.red,
         child: const Icon(Icons.delete, color: Colors.white),
       ),
-      child: Card(
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: theme.dividerColor.withOpacity(0.3)),
-        ),
-        child: InkWell(
-          onTap: onTap,
-          onLongPress: () => _showRenameDialog(context),
-          borderRadius: BorderRadius.circular(12),
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            leading: CircleAvatar(
-              backgroundColor: theme.colorScheme.primaryContainer,
-              child: Icon(Icons.chat, color: theme.colorScheme.onPrimaryContainer, size: 20),
-            ),
-            title: Text(conversation.title, style: const TextStyle(fontWeight: FontWeight.w500)),
-            subtitle: Text(dateStr, style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface.withOpacity(0.5))),
-            trailing: PopupMenuButton<String>(
-              onSelected: (action) {
-                if (action == 'rename') _showRenameDialog(context);
-                if (action == 'delete') onDelete();
-              },
-              itemBuilder: (ctx) => [
-                const PopupMenuItem(value: 'rename', child: ListTile(leading: Icon(Icons.edit), title: Text('重命名'), contentPadding: EdgeInsets.zero)),
-                const PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete, color: Colors.red), title: Text('删除', style: TextStyle(color: Colors.red)), contentPadding: EdgeInsets.zero)),
-              ],
-            ),
-          ),
-        ),
-      ),
+      child: tile,
     );
   }
 

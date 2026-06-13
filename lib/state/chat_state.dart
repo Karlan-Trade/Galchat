@@ -166,6 +166,45 @@ class ChatNotifier extends ChangeNotifier {
     _streamCompleter = null;
   }
 
+  /// Cancel the ongoing AI generation. Saves any already-streamed text as a
+  /// partial assistant message so the user doesn't lose generated content.
+  Future<void> cancelGeneration() async {
+    final current = _state;
+    if (current == null || !current.isLoading) return;
+
+    final partialText = current.streamingText;
+    final partialReasoning = current.streamingReasoning;
+
+    _cancelStreamSubscription();
+
+    // Save whatever has been partially streamed
+    if (partialText.isNotEmpty) {
+      try {
+        await _db.insertMessage(MessagesCompanion(
+          conversationId: Value(current.conversationId),
+          role: const Value('assistant'),
+          speaker: const Value('初雪'),
+          content: Value('$partialText\n\n*（已被主人打断喵~）*'),
+          createdAt: Value(DateTime.now()),
+        ));
+        await _db.touchConversation(current.conversationId);
+        final updatedMessages = await _db.getMessagesByConversation(current.conversationId);
+        _state = _state!.copyWith(
+          messages: updatedMessages,
+          isLoading: false,
+          clearStreamingText: true,
+          clearStreamingReasoning: true,
+          lastReasoning: partialReasoning,
+        );
+      } catch (e) {
+        _state = _state!.copyWith(isLoading: false, clearStreamingText: true, clearStreamingReasoning: true);
+      }
+    } else {
+      _state = _state!.copyWith(isLoading: false, clearStreamingText: true, clearStreamingReasoning: true);
+    }
+    notifyListeners();
+  }
+
   Future<void> loadConversation(int conversationId) async {
     // Cancel any ongoing AI request from a previous page session.
     _cancelStreamSubscription();
