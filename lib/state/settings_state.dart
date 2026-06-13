@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import '../database/database.dart';
@@ -113,7 +114,8 @@ class SettingsNotifier extends StateNotifier<SettingsUiState> {
       } else {
         state = state.copyWith(hasApiKey: hasKey);
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('SettingsNotifier.load: 数据库读取失败，使用默认值 — $e');
       final hasKey = await _apiKeyService.hasApiKey();
       state = state.copyWith(hasApiKey: hasKey);
     }
@@ -185,10 +187,11 @@ class SettingsNotifier extends StateNotifier<SettingsUiState> {
         'aiFirstMessage': state.aiFirstMessage,
         'thinkingEnabled': state.thinkingEnabled,
         'toolsEnabled': state.toolsEnabled,
-        'markdownRender': state.markdownRender,
         'providerPresetId': state.providerPresetId,
       }));
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('SettingsNotifier._savePrefs: 保存偏好文件失败 — $e');
+    }
   }
 
   /// Returns true if a `providerPresetId` was explicitly persisted, so the
@@ -199,17 +202,21 @@ class SettingsNotifier extends StateNotifier<SettingsUiState> {
       final f = File(path);
       if (f.existsSync()) {
         final data = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
+        // Only update behavior toggles from JSON; DB fields (baseUrl, model,
+        // markdownRender, etc.) are loaded separately and shouldn't be
+        // overwritten here.
         state = state.copyWith(
-          includeExampleDialogue: data['includeExampleDialogue'] as bool? ?? true,
-          aiFirstMessage: data['aiFirstMessage'] as bool? ?? true,
-          thinkingEnabled: data['thinkingEnabled'] as bool? ?? true,
-          toolsEnabled: data['toolsEnabled'] as bool? ?? true,
-          markdownRender: data['markdownRender'] as bool? ?? false,
-          providerPresetId: data['providerPresetId'] as String? ?? 'deepseek',
+          includeExampleDialogue: data['includeExampleDialogue'] as bool? ?? state.includeExampleDialogue,
+          aiFirstMessage: data['aiFirstMessage'] as bool? ?? state.aiFirstMessage,
+          thinkingEnabled: data['thinkingEnabled'] as bool? ?? state.thinkingEnabled,
+          toolsEnabled: data['toolsEnabled'] as bool? ?? state.toolsEnabled,
+          providerPresetId: data['providerPresetId'] as String? ?? state.providerPresetId,
         );
         return data.containsKey('providerPresetId');
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('SettingsNotifier._loadPrefs: 读取偏好文件失败 — $e');
+    }
     return false;
   }
 

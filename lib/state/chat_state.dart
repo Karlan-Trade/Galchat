@@ -80,6 +80,8 @@ class ChatNotifier extends ChangeNotifier {
   ChatUiState? _state;
   Character? _character;
   StreamSubscription<AiStreamChunk>? _streamSubscription;
+  Completer<void>? _streamCompleter;
+  bool _isDisposed = false;
   String? _exampleDialogue;
   String? _openingPrompt;
   String _replyStylePrompt = '';
@@ -154,7 +156,24 @@ class ChatNotifier extends ChangeNotifier {
     _replyStylePrompt = text;
   }
 
+  /// Cancel any ongoing stream subscription and reset streaming state.
+  void _cancelStreamSubscription() {
+    _streamSubscription?.cancel();
+    _streamSubscription = null;
+    if (_streamCompleter != null && !_streamCompleter!.isCompleted) {
+      _streamCompleter!.complete();
+    }
+    _streamCompleter = null;
+  }
+
   Future<void> loadConversation(int conversationId) async {
+    // Cancel any ongoing AI request from a previous page session.
+    _cancelStreamSubscription();
+    // Reset loading state so stale operations don't corrupt the new session.
+    if (_state?.isLoading == true) {
+      _state = _state!.copyWith(isLoading: false, clearStreamingText: true, clearStreamingReasoning: true);
+    }
+
     final conv = await _db.getConversationById(conversationId);
     if (conv == null) return;
 
@@ -177,6 +196,7 @@ class ChatNotifier extends ChangeNotifier {
     final current = _state;
     if (current == null) return;
 
+    _cancelStreamSubscription();
     _state = current.copyWith(isLoading: true, clearError: true);
     notifyListeners();
 
@@ -221,6 +241,9 @@ class ChatNotifier extends ChangeNotifier {
   /// and normal user turns. Streams text/reasoning deltas, detects tool calls,
   /// executes them via [_toolRunner], and re-streams up to 5 times. Falls back
   /// to a non-streaming call on timeout or empty output.
+  ///
+  /// Uses [Stream.listen] + [Completer] so that the subscription can be
+  /// cancelled when the user exits the page or starts a new request.
   Future<void> _streamTurnWithTools({
     required int conversationId,
     required String systemPrompt,
@@ -229,6 +252,8 @@ class ChatNotifier extends ChangeNotifier {
     required AiProvider provider,
     String emptyFallbackText = '',
   }) async {
+    if (_isDisposed) return;
+
     final fullContent = StringBuffer();
     final reasoningContent = StringBuffer();
     bool streamingCompleted = false;
@@ -250,6 +275,7 @@ class ChatNotifier extends ChangeNotifier {
       var toolLoopCount = 0;
 
       while (toolLoopCount < maxToolLoops) {
+        if (_isDisposed) return;
         toolLoopCount++;
         streamingCompleted = false;
         fullContent.clear();
@@ -266,42 +292,71 @@ class ChatNotifier extends ChangeNotifier {
         );
 
         // Only update streamingText on second+ loop iteration
-        if (toolLoopCount > 1) {
+        if (toolLoopCount > 1 && !_isDisposed) {
           _state = _state!.copyWith(streamingText: '（初雪正在查阅文件喵...）');
           notifyListeners();
         }
 
         final stream = provider.sendTurnStream(request);
-        await for (final chunk in stream.timeout(const Duration(seconds: 30))) {
-          if (chunk.isDone) {
-            streamingCompleted = true;
-            break;
-          }
-          if (chunk.toolCalls.isNotEmpty) {
-            pendingToolCalls = chunk.toolCalls;
-            continue;
-          }
-          if (chunk.reasoningDelta.isNotEmpty) {
-            reasoningContent.write(chunk.reasoningDelta);
-            if (_state!.isLoading) {
-              _state = _state!.copyWith(streamingReasoning: reasoningContent.toString());
-              notifyListeners();
-            }
-          }
-          if (chunk.textDelta.isNotEmpty) {
-            hasStreamed = true;
-            fullContent.write(chunk.textDelta);
-            if (_state!.isLoading) {
-              _state = _state!.copyWith(
-                streamingText: fullContent.toString(),
-                streamingReasoning: reasoningContent.toString(),
-              );
-              notifyListeners();
-            }
-          }
-        }
 
-        if (!streamingCompleted) break; // timeout
+        // Use listen() + Completer instead of await-for so the subscription
+        // can be cancelled externally via _cancelStreamSubscription().
+        final completer = Completer<void>();
+        _streamCompleter = completer;
+        _streamSubscription = stream.timeout(const Duration(seconds: 30)).listen(
+          (chunk) {
+            if (_isDisposed) {
+              if (!completer.isCompleted) completer.complete();
+              return;
+            }
+            if (chunk.isDone) {
+              streamingCompleted = true;
+              if (!completer.isCompleted) completer.complete();
+              return;
+            }
+            if (chunk.toolCalls.isNotEmpty) {
+              pendingToolCalls = chunk.toolCalls;
+              return; // 'continue' in the old await-for: skip text/reasoning for this chunk
+            }
+            if (chunk.reasoningDelta.isNotEmpty) {
+              reasoningContent.write(chunk.reasoningDelta);
+              if (_state?.isLoading == true) {
+                _state = _state!.copyWith(streamingReasoning: reasoningContent.toString());
+                notifyListeners();
+              }
+            }
+            if (chunk.textDelta.isNotEmpty) {
+              hasStreamed = true;
+              fullContent.write(chunk.textDelta);
+              if (_state?.isLoading == true) {
+                _state = _state!.copyWith(
+                  streamingText: fullContent.toString(),
+                  streamingReasoning: reasoningContent.toString(),
+                );
+                notifyListeners();
+              }
+            }
+          },
+          onDone: () {
+            if (!completer.isCompleted) completer.complete();
+          },
+          onError: (e) {
+            // If disposed, suppress the error and resolve the completer so
+            // we don't leave the await hanging.
+            if (_isDisposed && !completer.isCompleted) {
+              completer.complete();
+            } else if (!completer.isCompleted) {
+              completer.completeError(e);
+            }
+          },
+          cancelOnError: false,
+        );
+
+        await completer.future;
+        _streamCompleter = null;
+
+        if (_isDisposed) return;
+        if (!streamingCompleted) break; // timeout or error
 
         // If tool calls were detected, execute them all and loop
         if (pendingToolCalls.isNotEmpty && _toolRunner != null) {
@@ -338,6 +393,8 @@ class ChatNotifier extends ChangeNotifier {
         break; // no tool call → normal response
       }
 
+      if (_isDisposed) return;
+
       if (hasStreamed && fullContent.isNotEmpty) {
         _state = _state!.copyWith(lastReasoning: reasoningContent.toString());
         notifyListeners();
@@ -346,6 +403,7 @@ class ChatNotifier extends ChangeNotifier {
         await _fallbackNonStreaming(conversationId, provider, baseRequest, emptyFallbackText);
       }
     } catch (e) {
+      if (_isDisposed) return;
       _streamSubscription = null;
       if (!streamingCompleted) {
         await _fallbackNonStreaming(conversationId, provider, baseRequest, fullContent.toString());
@@ -356,6 +414,9 @@ class ChatNotifier extends ChangeNotifier {
   Future<void> sendMessage(String text) async {
     final current = _state;
     if (current == null || current.isLoading) return;
+
+    // Cancel any stale stream from a previous page session.
+    _cancelStreamSubscription();
 
     _state = current.copyWith(isLoading: true, clearError: true, clearRawResponse: true, clearStreamingText: true, clearStreamingReasoning: true);
     notifyListeners();
@@ -651,7 +712,8 @@ $_replyStylePrompt''';
 
   @override
   void dispose() {
-    _streamSubscription?.cancel();
+    _isDisposed = true;
+    _cancelStreamSubscription();
     super.dispose();
   }
 }
