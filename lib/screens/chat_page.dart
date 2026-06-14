@@ -299,12 +299,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final aiSettingsState = ref.watch(aiSettingsFromStateProvider);
     final contextWindow = aiSettingsState.contextWindow;
     final markdownEnabled = aiSettingsState.markdownRender;
-    final systemPrompt = _chatNotifier?.systemPrompt ?? '';
-    final historyMaps = chatState.messages
-        .where((m) => m.role != 'system')
-        .map((m) => {'role': m.role, 'content': m.content})
-        .toList();
-    final usedTokens = TokenCounter.estimateMessages(historyMaps, systemPrompt);
+    final contextPayload = buildContextPayload(
+      systemPrompt: _chatNotifier?.systemPrompt ?? '',
+      messages: chatState.messages,
+      settings: aiSettingsState,
+    );
+    final usedTokens = TokenCounter.estimateMessages(
+      contextPayload.history,
+      contextPayload.systemPrompt,
+    );
+    final showCompressButton = aiSettingsState.truncateStrategy == 'compress';
 
     return Scaffold(
       appBar: AppBar(
@@ -335,18 +339,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               notifier.saveSettings();
             },
           ),
-          IconButton(
-            icon: chatState.isCompressing
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.compress),
-            tooltip: '压缩上下文',
-            onPressed: chatState.isCompressing
-                ? null
-                : () => _chatNotifier?.compressContext(),
-          ),
+          if (showCompressButton)
+            IconButton(
+              icon: chatState.isCompressing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.compress),
+              tooltip: '压缩上下文',
+              onPressed: chatState.isCompressing
+                  ? null
+                  : () => _chatNotifier?.compressContext(),
+            ),
           if (chatState.errorMessage != null)
             IconButton(
               icon: const Icon(Icons.refresh),

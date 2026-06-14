@@ -94,6 +94,19 @@ class _ConversationListPageState extends ConsumerState<ConversationListPage> {
       arguments: {
         'conversationId': conversation.id,
         'title': '${conversation.title} · 记忆',
+        'kind': 'memory',
+      },
+    );
+  }
+
+  void _openSummaryEditor(Conversation conversation) {
+    Navigator.pushNamed(
+      context,
+      '/conversation-memory',
+      arguments: {
+        'conversationId': conversation.id,
+        'title': '${conversation.title} · 上下文摘要',
+        'kind': 'summary',
       },
     );
   }
@@ -228,6 +241,8 @@ class _ConversationListPageState extends ConsumerState<ConversationListPage> {
                             _deleteConversation(state.conversations[index].id),
                         onEditMemory: () =>
                             _openMemoryEditor(state.conversations[index]),
+                        onEditSummary: () =>
+                            _openSummaryEditor(state.conversations[index]),
                         onRename: (newTitle) => ref
                             .read(conversationListProvider.notifier)
                             .renameConversation(
@@ -317,6 +332,7 @@ class _ConversationTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onDelete;
   final VoidCallback onEditMemory;
+  final VoidCallback onEditSummary;
   final VoidCallback onToggleSelect;
   final VoidCallback onLongPress;
   final void Function(String newTitle) onRename;
@@ -328,6 +344,7 @@ class _ConversationTile extends StatelessWidget {
     required this.onTap,
     required this.onDelete,
     required this.onEditMemory,
+    required this.onEditSummary,
     required this.onRename,
     required this.onToggleSelect,
     required this.onLongPress,
@@ -410,6 +427,7 @@ class _ConversationTile extends StatelessWidget {
                   onSelected: (action) {
                     if (action == 'rename') _showRenameDialog(context);
                     if (action == 'memory') onEditMemory();
+                    if (action == 'summary') onEditSummary();
                     if (action == 'delete') onDelete();
                   },
                   itemBuilder: (ctx) => [
@@ -424,6 +442,12 @@ class _ConversationTile extends StatelessWidget {
                         child: ListTile(
                             leading: Icon(Icons.psychology_alt_outlined),
                             title: Text('记忆'),
+                            contentPadding: EdgeInsets.zero)),
+                    const PopupMenuItem(
+                        value: 'summary',
+                        child: ListTile(
+                            leading: Icon(Icons.compress),
+                            title: Text('上下文摘要'),
                             contentPadding: EdgeInsets.zero)),
                     const PopupMenuItem(
                         value: 'delete',
