@@ -206,25 +206,42 @@ class ChatNotifier extends ChangeNotifier {
     final current = _state;
     if (current == null || !current.isLoading) return;
 
-    final partialText = current.streamingText;
-    final partialReasoning = current.streamingReasoning;
-
     // Signal the stream loop to stop before we cancel — prevents
     // _streamTurnWithTools from also saving a message.
     _cancelled = true;
     _cancelStreamSubscription();
 
-    // Save whatever has been partially streamed
-    if (partialText.isNotEmpty) {
-      try {
+    await _savePartialGeneration(current, interruptedByDispose: false);
+    notifyListeners();
+  }
+
+  Future<void> _savePartialGeneration(
+    ChatUiState current, {
+    required bool interruptedByDispose,
+  }) async {
+    final partialText = current.streamingText;
+    final partialReasoning = current.streamingReasoning;
+
+    try {
+      if (partialText.isNotEmpty || partialReasoning.isNotEmpty) {
+        final suffix = interruptedByDispose ? '（已在离开页面时保存喵~）' : '（已被主人打断喵~）';
+        final savedContent = partialText.isNotEmpty
+            ? '$partialText\n\n*$suffix*'
+            : '（已保存思考过程喵...）';
         await _db.insertMessage(MessagesCompanion(
           conversationId: Value(current.conversationId),
           role: const Value('assistant'),
           speaker: const Value('初雪'),
-          content: Value('$partialText\n\n*（已被主人打断喵~）*'),
+          content: Value(savedContent),
+          reasoningContent: partialReasoning.isNotEmpty
+              ? Value(partialReasoning)
+              : const Value.absent(),
           createdAt: Value(DateTime.now()),
         ));
         await _db.touchConversation(current.conversationId);
+      }
+
+      if (!_isDisposed) {
         final updatedMessages =
             await _db.getMessagesByConversation(current.conversationId);
         _state = _state!.copyWith(
@@ -234,21 +251,17 @@ class ChatNotifier extends ChangeNotifier {
           clearStreamingReasoning: true,
           lastReasoning: partialReasoning,
         );
-      } catch (e) {
-        _state = _state!.copyWith(
-            isLoading: false,
-            clearStreamingText: true,
-            clearStreamingReasoning: true);
       }
-    } else {
-      _state = _state!.copyWith(
-        isLoading: false,
-        clearStreamingText: true,
-        clearStreamingReasoning: true,
-        lastReasoning: partialReasoning,
-      );
+    } catch (_) {
+      if (!_isDisposed) {
+        _state = _state!.copyWith(
+          isLoading: false,
+          clearStreamingText: true,
+          clearStreamingReasoning: true,
+          lastReasoning: partialReasoning,
+        );
+      }
     }
-    notifyListeners();
   }
 
   Future<void> loadConversation(int conversationId) async {
@@ -269,12 +282,20 @@ class ChatNotifier extends ChangeNotifier {
     final messages = await _db.getMessagesByConversation(conversationId);
     final choices = await _db.getChoicesByConversation(conversationId);
     final pendingChoices = choices.where((c) => c.selectedAt == null).toList();
+    final reasonedMessages = messages.where((m) =>
+        m.role == 'assistant' &&
+        m.reasoningContent != null &&
+        m.reasoningContent!.isNotEmpty);
+    final lastReasoning = reasonedMessages.isNotEmpty
+        ? reasonedMessages.last.reasoningContent!
+        : '';
 
     _state = ChatUiState(
         conversationId: conversationId,
         characterId: conv.characterId,
         messages: messages,
-        pendingChoices: pendingChoices);
+        pendingChoices: pendingChoices,
+        lastReasoning: lastReasoning);
     notifyListeners();
 
     // Trigger AI to send the first message if conversation is empty and toggle is on
@@ -353,6 +374,7 @@ class ChatNotifier extends ChangeNotifier {
 
     final fullContent = StringBuffer();
     final reasoningContent = StringBuffer();
+    final accumulatedReasoning = StringBuffer();
     bool streamingCompleted = false;
     bool hasStreamed = false;
     List<ToolCallRequest> pendingToolCalls = [];
@@ -367,7 +389,7 @@ class ChatNotifier extends ChangeNotifier {
     try {
       var loopHistory = List<Map<String, String>>.from(allHistory);
       var loopUserMessage = userMessage;
-      List<Map<String, dynamic>>? loopToolResults;
+      final loopToolResults = <Map<String, dynamic>>[];
       var toolLoopCount = 0;
 
       while (true) {
@@ -384,7 +406,7 @@ class ChatNotifier extends ChangeNotifier {
           history: loopHistory,
           userMessage: loopUserMessage,
           currentState: {},
-          toolResults: loopToolResults,
+          toolResults: loopToolResults.isEmpty ? null : loopToolResults,
         );
 
         // Only update streamingText on second+ loop iteration
@@ -417,9 +439,10 @@ class ChatNotifier extends ChangeNotifier {
             }
             if (chunk.reasoningDelta.isNotEmpty) {
               reasoningContent.write(chunk.reasoningDelta);
+              accumulatedReasoning.write(chunk.reasoningDelta);
               if (_state?.isLoading == true) {
-                _state = _state!
-                    .copyWith(streamingReasoning: reasoningContent.toString());
+                _state = _state!.copyWith(
+                    streamingReasoning: accumulatedReasoning.toString());
                 notifyListeners();
               }
             }
@@ -429,7 +452,7 @@ class ChatNotifier extends ChangeNotifier {
               if (_state?.isLoading == true) {
                 _state = _state!.copyWith(
                   streamingText: fullContent.toString(),
-                  streamingReasoning: reasoningContent.toString(),
+                  streamingReasoning: accumulatedReasoning.toString(),
                 );
                 notifyListeners();
               }
@@ -488,7 +511,7 @@ class ChatNotifier extends ChangeNotifier {
 
           loopHistory = List<Map<String, String>>.from(allHistory);
           loopUserMessage = userMessage;
-          loopToolResults = toolResultMessages;
+          loopToolResults.addAll(toolResultMessages);
           continue; // re-loop with tool results
         }
 
@@ -499,10 +522,11 @@ class ChatNotifier extends ChangeNotifier {
       if (_cancelled) return;
 
       if (hasStreamed && fullContent.isNotEmpty) {
-        _state = _state!.copyWith(lastReasoning: reasoningContent.toString());
+        _state =
+            _state!.copyWith(lastReasoning: accumulatedReasoning.toString());
         notifyListeners();
-        await _processAiResponse(
-            conversationId, fullContent.toString(), provider, baseRequest);
+        await _processAiResponse(conversationId, fullContent.toString(),
+            provider, baseRequest, accumulatedReasoning.toString());
       } else if (!hasStreamed && fullContent.isEmpty) {
         await _fallbackNonStreaming(
             conversationId, provider, baseRequest, emptyFallbackText);
@@ -640,6 +664,7 @@ class ChatNotifier extends ChangeNotifier {
     String generatedText,
     AiProvider provider,
     AiTurnRequest request,
+    String reasoningText,
   ) async {
     if (_cancelled)
       return; // User cancelled — cancelGeneration() handles saving
@@ -653,6 +678,9 @@ class ChatNotifier extends ChangeNotifier {
       role: const Value('assistant'),
       speaker: const Value('初雪'),
       content: Value(generatedText),
+      reasoningContent: reasoningText.isNotEmpty
+          ? Value(reasoningText)
+          : const Value.absent(),
       createdAt: Value(DateTime.now()),
     ));
 
@@ -741,17 +769,34 @@ class ChatNotifier extends ChangeNotifier {
     final nonSys = msgs.where((m) => m.role != 'system').toList();
     if (nonSys.isEmpty) return;
 
-    // Find the last user message (what we're regenerating from).
-    final lastUser =
-        nonSys.lastWhere((m) => m.role == 'user', orElse: () => nonSys.first);
-    if (lastUser.role != 'user') return; // No user message to regenerate from
-
     // Delete the last AI message so we can replace it.
     final lastAi = nonSys.lastWhere((m) => m.role == 'assistant',
         orElse: () => nonSys.first);
     if (lastAi.role == 'assistant') {
       await _db.deleteMessage(lastAi.id);
     }
+
+    // Opening messages have no user prompt in history. Regenerate them by
+    // re-running the opening flow after deleting the old assistant message.
+    final userMessages = nonSys.where((m) => m.role == 'user').toList();
+    if (userMessages.isEmpty) {
+      final refreshedMessages =
+          await _db.getMessagesByConversation(current.conversationId);
+      _state = current.copyWith(
+        clearError: true,
+        clearRawResponse: true,
+        clearStreamingText: true,
+        clearStreamingReasoning: true,
+        clearLastReasoning: true,
+        messages: refreshedMessages,
+      );
+      notifyListeners();
+      await _sendOpeningMessage();
+      return;
+    }
+
+    // Find the last user message (what we're regenerating from).
+    final lastUser = userMessages.last;
 
     // Reload messages from DB (now without the deleted AI message).
     final refreshedMessages =
@@ -938,6 +983,10 @@ $_replyStylePrompt''';
   @override
   void dispose() {
     _isDisposed = true;
+    final current = _state;
+    if (current != null && current.isLoading) {
+      unawaited(_savePartialGeneration(current, interruptedByDispose: true));
+    }
     _cancelStreamSubscription();
     super.dispose();
   }

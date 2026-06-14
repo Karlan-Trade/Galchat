@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../database/database.dart';
+import '../services/narrative_service.dart';
 import '../state/conversation_state.dart';
 
 /// Conversation list (save list) page.
@@ -11,7 +12,8 @@ class ConversationListPage extends ConsumerStatefulWidget {
   const ConversationListPage({super.key});
 
   @override
-  ConsumerState<ConversationListPage> createState() => _ConversationListPageState();
+  ConsumerState<ConversationListPage> createState() =>
+      _ConversationListPageState();
 }
 
 class _ConversationListPageState extends ConsumerState<ConversationListPage> {
@@ -39,10 +41,15 @@ class _ConversationListPageState extends ConsumerState<ConversationListPage> {
             const Text('新建对话'),
           ],
         ),
-        content: const Text('是否使用向导设定故事背景喵？\n\n选「是」：初雪会通过几轮问答帮你搭建世界观和角色设定\n选「否」：直接开始对话，初雪会主动发来第一条消息'),
+        content: const Text(
+            '是否使用向导设定故事背景喵？\n\n选「是」：初雪会通过几轮问答帮你搭建世界观和角色设定\n选「否」：直接开始对话，初雪会主动发来第一条消息'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('否，直接开始')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('是，使用向导')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('否，直接开始')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('是，使用向导')),
         ],
       ),
     );
@@ -58,14 +65,17 @@ class _ConversationListPageState extends ConsumerState<ConversationListPage> {
       });
     } else {
       // Create conversation directly
-      final convId = await ref.read(conversationListProvider.notifier).createConversation();
+      final convId = await ref
+          .read(conversationListProvider.notifier)
+          .createConversation();
       if (convId != null && mounted) {
         Navigator.pushNamed(context, '/chat', arguments: convId).then((_) {
           ref.read(conversationListProvider.notifier).loadConversations();
         });
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('创建对话失败喵...请检查设置后重试'), backgroundColor: Colors.red),
+          const SnackBar(
+              content: Text('创建对话失败喵...请检查设置后重试'), backgroundColor: Colors.red),
         );
       }
     }
@@ -75,6 +85,17 @@ class _ConversationListPageState extends ConsumerState<ConversationListPage> {
     Navigator.pushNamed(context, '/chat', arguments: convId).then((_) {
       ref.read(conversationListProvider.notifier).loadConversations();
     });
+  }
+
+  void _openMemoryEditor(Conversation conversation) {
+    Navigator.pushNamed(
+      context,
+      '/conversation-memory',
+      arguments: {
+        'conversationId': conversation.id,
+        'title': '${conversation.title} · 记忆',
+      },
+    );
   }
 
   void _deleteConversation(int convId) {
@@ -89,8 +110,14 @@ class _ConversationListPageState extends ConsumerState<ConversationListPage> {
             child: const Text('取消'),
           ),
           TextButton(
-            onPressed: () {
-              ref.read(conversationListProvider.notifier).deleteConversation(convId);
+            onPressed: () async {
+              final ns = ref.read(narrativeServiceProvider);
+              await ns.init();
+              await ns.deleteConversationMemory(convId);
+              await ref
+                  .read(conversationListProvider.notifier)
+                  .deleteConversation(convId);
+              if (!ctx.mounted) return;
               Navigator.pop(ctx);
             },
             style: TextButton.styleFrom(foregroundColor: Colors.red),
@@ -112,10 +139,18 @@ class _ConversationListPageState extends ConsumerState<ConversationListPage> {
         title: const Text('确认批量删除'),
         content: Text('确定要删除选中的 $count 个对话吗？删除后将无法恢复喵...'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
           TextButton(
-            onPressed: () {
-              ref.read(conversationListProvider.notifier).batchDelete();
+              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+            onPressed: () async {
+              final ids = state.selectedIds.toList();
+              final ns = ref.read(narrativeServiceProvider);
+              await ns.init();
+              for (final id in ids) {
+                await ns.deleteConversationMemory(id);
+              }
+              await ref.read(conversationListProvider.notifier).batchDelete();
+              if (!ctx.mounted) return;
               Navigator.pop(ctx);
             },
             style: TextButton.styleFrom(foregroundColor: Colors.red),
@@ -130,7 +165,6 @@ class _ConversationListPageState extends ConsumerState<ConversationListPage> {
   Widget build(BuildContext context) {
     final state = ref.watch(conversationListProvider);
     final notifier = ref.read(conversationListProvider.notifier);
-    final theme = Theme.of(context);
 
     return Scaffold(
       appBar: state.isSelectionMode
@@ -143,17 +177,22 @@ class _ConversationListPageState extends ConsumerState<ConversationListPage> {
               title: Text('已选 ${state.selectedIds.length} 项'),
               actions: [
                 TextButton(
-                  onPressed: state.selectedIds.length == state.conversations.length
-                      ? notifier.deselectAll
-                      : notifier.selectAll,
+                  onPressed:
+                      state.selectedIds.length == state.conversations.length
+                          ? notifier.deselectAll
+                          : notifier.selectAll,
                   child: Text(
-                    state.selectedIds.length == state.conversations.length ? '取消全选' : '全选',
+                    state.selectedIds.length == state.conversations.length
+                        ? '取消全选'
+                        : '全选',
                   ),
                 ),
                 IconButton(
-                  icon: Icon(Icons.delete, color: state.selectedIds.isEmpty ? null : Colors.red),
+                  icon: Icon(Icons.delete,
+                      color: state.selectedIds.isEmpty ? null : Colors.red),
                   tooltip: '删除选中',
-                  onPressed: state.selectedIds.isEmpty ? null : _confirmBatchDelete,
+                  onPressed:
+                      state.selectedIds.isEmpty ? null : _confirmBatchDelete,
                 ),
               ],
             )
@@ -181,17 +220,25 @@ class _ConversationListPageState extends ConsumerState<ConversationListPage> {
                       return _ConversationTile(
                         conversation: state.conversations[index],
                         isSelectionMode: state.isSelectionMode,
-                        isSelected: state.selectedIds.contains(state.conversations[index].id),
-                        onTap: () => _openConversation(state.conversations[index].id),
-                        onDelete: () => _deleteConversation(state.conversations[index].id),
-                        onRename: (newTitle) =>
-                            ref.read(conversationListProvider.notifier)
-                                .renameConversation(state.conversations[index].id, newTitle),
-                        onToggleSelect: () => notifier.toggleSelection(state.conversations[index].id),
+                        isSelected: state.selectedIds
+                            .contains(state.conversations[index].id),
+                        onTap: () =>
+                            _openConversation(state.conversations[index].id),
+                        onDelete: () =>
+                            _deleteConversation(state.conversations[index].id),
+                        onEditMemory: () =>
+                            _openMemoryEditor(state.conversations[index]),
+                        onRename: (newTitle) => ref
+                            .read(conversationListProvider.notifier)
+                            .renameConversation(
+                                state.conversations[index].id, newTitle),
+                        onToggleSelect: () => notifier
+                            .toggleSelection(state.conversations[index].id),
                         onLongPress: () {
                           if (!state.isSelectionMode) {
                             notifier.toggleSelectionMode();
-                            notifier.toggleSelection(state.conversations[index].id);
+                            notifier
+                                .toggleSelection(state.conversations[index].id);
                           }
                         },
                       );
@@ -269,6 +316,7 @@ class _ConversationTile extends StatelessWidget {
   final bool isSelected;
   final VoidCallback onTap;
   final VoidCallback onDelete;
+  final VoidCallback onEditMemory;
   final VoidCallback onToggleSelect;
   final VoidCallback onLongPress;
   final void Function(String newTitle) onRename;
@@ -279,6 +327,7 @@ class _ConversationTile extends StatelessWidget {
     required this.isSelected,
     required this.onTap,
     required this.onDelete,
+    required this.onEditMemory,
     required this.onRename,
     required this.onToggleSelect,
     required this.onLongPress,
@@ -293,10 +342,12 @@ class _ConversationTile extends StatelessWidget {
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration: const InputDecoration(border: OutlineInputBorder(), hintText: '输入新标题'),
+          decoration: const InputDecoration(
+              border: OutlineInputBorder(), hintText: '输入新标题'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
           TextButton(
             onPressed: () {
               final newTitle = controller.text.trim();
@@ -333,29 +384,54 @@ class _ConversationTile extends StatelessWidget {
         onLongPress: isSelectionMode ? null : onLongPress,
         borderRadius: BorderRadius.circular(12),
         child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           leading: isSelectionMode
               ? Checkbox(
                   value: isSelected,
                   onChanged: (_) => onToggleSelect(),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(4)),
                 )
               : CircleAvatar(
                   backgroundColor: theme.colorScheme.primaryContainer,
-                  child: Icon(Icons.chat, color: theme.colorScheme.onPrimaryContainer, size: 20),
+                  child: Icon(Icons.chat,
+                      color: theme.colorScheme.onPrimaryContainer, size: 20),
                 ),
-          title: Text(conversation.title, style: const TextStyle(fontWeight: FontWeight.w500)),
-          subtitle: Text(dateStr, style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface.withOpacity(0.5))),
+          title: Text(conversation.title,
+              style: const TextStyle(fontWeight: FontWeight.w500)),
+          subtitle: Text(dateStr,
+              style: TextStyle(
+                  fontSize: 12,
+                  color: theme.colorScheme.onSurface.withOpacity(0.5))),
           trailing: isSelectionMode
               ? null
               : PopupMenuButton<String>(
                   onSelected: (action) {
                     if (action == 'rename') _showRenameDialog(context);
+                    if (action == 'memory') onEditMemory();
                     if (action == 'delete') onDelete();
                   },
                   itemBuilder: (ctx) => [
-                    const PopupMenuItem(value: 'rename', child: ListTile(leading: Icon(Icons.edit), title: Text('重命名'), contentPadding: EdgeInsets.zero)),
-                    const PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete, color: Colors.red), title: Text('删除', style: TextStyle(color: Colors.red)), contentPadding: EdgeInsets.zero)),
+                    const PopupMenuItem(
+                        value: 'rename',
+                        child: ListTile(
+                            leading: Icon(Icons.edit),
+                            title: Text('重命名'),
+                            contentPadding: EdgeInsets.zero)),
+                    const PopupMenuItem(
+                        value: 'memory',
+                        child: ListTile(
+                            leading: Icon(Icons.psychology_alt_outlined),
+                            title: Text('记忆'),
+                            contentPadding: EdgeInsets.zero)),
+                    const PopupMenuItem(
+                        value: 'delete',
+                        child: ListTile(
+                            leading: Icon(Icons.delete, color: Colors.red),
+                            title:
+                                Text('删除', style: TextStyle(color: Colors.red)),
+                            contentPadding: EdgeInsets.zero)),
                   ],
                 ),
         ),
@@ -367,7 +443,10 @@ class _ConversationTile extends StatelessWidget {
     return Dismissible(
       key: Key('conv_${conversation.id}'),
       direction: DismissDirection.endToStart,
-      confirmDismiss: (_) async { onDelete(); return false; },
+      confirmDismiss: (_) async {
+        onDelete();
+        return false;
+      },
       background: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20),

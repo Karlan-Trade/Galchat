@@ -4,8 +4,9 @@ import 'narrative_service.dart';
 /// Executes read/write tool calls for narrative files.
 class NarrativeToolRunner implements ToolRunner {
   final NarrativeService _ns;
+  final int conversationId;
 
-  NarrativeToolRunner(this._ns);
+  NarrativeToolRunner(this._ns, {required this.conversationId});
 
   @override
   Future<String> run(String name, Map<String, dynamic> args) async {
@@ -15,7 +16,11 @@ class NarrativeToolRunner implements ToolRunner {
       case 'write_file':
         final filename = args['filename'] as String? ?? '';
         final content = args['content'] as String? ?? '';
-        await _ns.writeFile(filename, content);
+        if (filename == 'memory.md') {
+          await _ns.writeConversationMemory(conversationId, content);
+        } else {
+          await _ns.writeFile(filename, content);
+        }
         return '已成功写入 $filename';
       default:
         return '未知工具: $name';
@@ -49,18 +54,25 @@ class NarrativeToolRunner implements ToolRunner {
     if (filenames.isEmpty) return '(未指定文件名)';
 
     if (filenames.length == 1) {
-      final content = await _ns.readFile(filenames.first);
+      final content = await _readFile(filenames.first);
       return content.isNotEmpty ? content : '(文件为空)';
     }
 
     // Multiple files: concatenate with clear headers
     final buf = StringBuffer();
     for (final name in filenames) {
-      final content = await _ns.readFile(name);
+      final content = await _readFile(name);
       buf.writeln('=== $name ===');
       buf.writeln(content.isNotEmpty ? content : '(文件为空)');
       buf.writeln();
     }
     return buf.toString();
+  }
+
+  Future<String> _readFile(String name) {
+    if (name == 'memory.md') {
+      return _ns.readConversationMemory(conversationId);
+    }
+    return _ns.readFile(name);
   }
 }

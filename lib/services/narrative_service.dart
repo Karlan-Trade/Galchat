@@ -4,7 +4,7 @@ import 'package:path_provider/path_provider.dart';
 
 /// Manages the narrative design markdown files in app documents storage.
 ///
-/// Stores five files: settings, npcs, plot-outline, progress, and MEMORY.md index.
+/// Stores shared narrative files plus per-conversation memory files.
 /// Seeds default content on first launch.
 class NarrativeService {
   static const _fileNames = [
@@ -60,9 +60,38 @@ class NarrativeService {
     return file.readAsString();
   }
 
+  Future<String> readConversationMemory(int conversationId) async {
+    final file = await _conversationMemoryFile(conversationId);
+    if (!file.existsSync()) return '';
+    return file.readAsString();
+  }
+
   Future<void> writeFile(String name, String content) async {
     final file = File('$_baseDir/$name');
     await file.writeAsString(content);
+  }
+
+  Future<void> writeConversationMemory(
+    int conversationId,
+    String content,
+  ) async {
+    final file = await _conversationMemoryFile(conversationId);
+    await file.writeAsString(content);
+  }
+
+  Future<void> deleteConversationMemory(int conversationId) async {
+    final dir = Directory('$_baseDir/conversations/$conversationId');
+    if (dir.existsSync()) {
+      await dir.delete(recursive: true);
+    }
+  }
+
+  Future<File> _conversationMemoryFile(int conversationId) async {
+    final dir = Directory('$_baseDir/conversations/$conversationId');
+    if (!dir.existsSync()) {
+      await dir.create(recursive: true);
+    }
+    return File('${dir.path}/memory.md');
   }
 
   Future<Map<String, String>> readAll() async {

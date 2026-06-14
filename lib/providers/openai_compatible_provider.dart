@@ -9,21 +9,35 @@ const _narrativeFileTools = [
     'type': 'function',
     'function': {
       'name': 'read_file',
-      'description': '读取故事叙述文件的当前内容。可用文件名: galgame-settings.md(世界观设定), galgame-npcs.md(NPC阵容), galgame-plot-outline.md(剧情大纲), galgame-progress.md(进度追踪)。可一次读取单个或多个文件',
+      'description':
+          '读取故事叙述文件的当前内容。可用文件名: galgame-settings.md(世界观设定), galgame-npcs.md(NPC阵容), galgame-plot-outline.md(剧情大纲), galgame-progress.md(进度追踪), memory.md(长期记忆)。可一次读取单个或多个文件',
       'parameters': {
         'type': 'object',
         'properties': {
           'filename': {
             'type': 'string',
             'description': '单个文件名，如 galgame-settings.md',
-            'enum': ['galgame-settings.md', 'galgame-npcs.md', 'galgame-plot-outline.md', 'galgame-progress.md'],
+            'enum': [
+              'galgame-settings.md',
+              'galgame-npcs.md',
+              'galgame-plot-outline.md',
+              'galgame-progress.md',
+              'memory.md'
+            ],
           },
           'filenames': {
             'type': 'array',
-            'description': '文件名列表，一次读取多个文件。如 ["galgame-settings.md", "galgame-progress.md"]',
+            'description':
+                '文件名列表，一次读取多个文件。如 ["galgame-settings.md", "galgame-progress.md"]',
             'items': {
               'type': 'string',
-              'enum': ['galgame-settings.md', 'galgame-npcs.md', 'galgame-plot-outline.md', 'galgame-progress.md'],
+              'enum': [
+                'galgame-settings.md',
+                'galgame-npcs.md',
+                'galgame-plot-outline.md',
+                'galgame-progress.md',
+                'memory.md'
+              ],
             },
           },
         },
@@ -41,7 +55,13 @@ const _narrativeFileTools = [
           'filename': {
             'type': 'string',
             'description': '文件名',
-            'enum': ['galgame-settings.md', 'galgame-npcs.md', 'galgame-plot-outline.md', 'galgame-progress.md'],
+            'enum': [
+              'galgame-settings.md',
+              'galgame-npcs.md',
+              'galgame-plot-outline.md',
+              'galgame-progress.md',
+              'memory.md'
+            ],
           },
           'content': {
             'type': 'string',
@@ -95,18 +115,25 @@ class OpenAiCompatibleProvider implements AiProvider {
     final body = _buildBody(messages, stream: false);
 
     try {
-      final response = await _httpClient.post(url, headers: _headers(), body: jsonEncode(body));
+      final response = await _httpClient.post(url,
+          headers: _headers(), body: jsonEncode(body));
       if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        final data =
+            jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
         return _parseResponse(data);
       } else if (response.statusCode == 401 || response.statusCode == 403) {
         throw AiAuthException('API Key验证失败 (HTTP ${response.statusCode})');
       } else {
-        throw AiNetworkException('请求失败 (HTTP ${response.statusCode}): ${response.body}');
+        throw AiNetworkException(
+            '请求失败 (HTTP ${response.statusCode}): ${response.body}');
       }
-    } on AiAuthException { rethrow; }
-    on AiNetworkException { rethrow; }
-    catch (e) { throw AiNetworkException('网络错误: $e'); }
+    } on AiAuthException {
+      rethrow;
+    } on AiNetworkException {
+      rethrow;
+    } catch (e) {
+      throw AiNetworkException('网络错误: $e');
+    }
   }
 
   /// Stream AI response chunks via SSE.
@@ -117,22 +144,26 @@ class OpenAiCompatibleProvider implements AiProvider {
     final body = _buildBody(messages, stream: true);
 
     final streamedResponse = await _httpClient.send(
-      http.Request('POST', url)..headers.addAll(_headers())..body = jsonEncode(body),
+      http.Request('POST', url)
+        ..headers.addAll(_headers())
+        ..body = jsonEncode(body),
     );
 
-    if (streamedResponse.statusCode == 401 || streamedResponse.statusCode == 403) {
-      throw AiAuthException('API Key验证失败 (HTTP ${streamedResponse.statusCode})');
+    if (streamedResponse.statusCode == 401 ||
+        streamedResponse.statusCode == 403) {
+      throw AiAuthException(
+          'API Key验证失败 (HTTP ${streamedResponse.statusCode})');
     }
     if (streamedResponse.statusCode != 200) {
       final errorBody = await streamedResponse.stream.bytesToString();
-      throw AiNetworkException('请求失败 (HTTP ${streamedResponse.statusCode}): $errorBody');
+      throw AiNetworkException(
+          '请求失败 (HTTP ${streamedResponse.statusCode}): $errorBody');
     }
 
     final lines = streamedResponse.stream
         .transform(utf8.decoder)
         .transform(const LineSplitter());
 
-    final buffer = StringBuffer();
     final toolCallAccs = <int, Map<String, dynamic>>{};
     final toolCallIds = <int, String>{};
     final toolCallNames = <int, String>{};
@@ -151,7 +182,8 @@ class OpenAiCompatibleProvider implements AiProvider {
               allToolCalls.add(ToolCallRequest(
                 id: acc['id'] as String,
                 name: (acc['function'] as Map)['name'] as String,
-                arguments: _parseArgs((acc['function'] as Map)['arguments'] as String? ?? '{}'),
+                arguments: _parseArgs(
+                    (acc['function'] as Map)['arguments'] as String? ?? '{}'),
               ));
             }
             yield AiStreamChunk(toolCalls: allToolCalls);
@@ -183,7 +215,8 @@ class OpenAiCompatibleProvider implements AiProvider {
                 toolArgsBufs[index] = StringBuffer();
               }
               if (fn?['arguments'] != null) {
-                final buf = toolArgsBufs.putIfAbsent(index, () => StringBuffer());
+                final buf =
+                    toolArgsBufs.putIfAbsent(index, () => StringBuffer());
                 buf.write(fn!['arguments'] as String);
                 final acc = toolCallAccs[index];
                 if (acc != null) {
@@ -201,17 +234,12 @@ class OpenAiCompatibleProvider implements AiProvider {
             yield AiStreamChunk(reasoningDelta: reasoning);
           }
           if (content.isNotEmpty) {
-            buffer.write(content);
             yield AiStreamChunk(textDelta: content);
           }
-        } catch (_) { /* skip unparseable */ }
+        } catch (_) {/* skip unparseable */}
       }
     }
-
-    _lastStreamedContent = buffer.toString();
   }
-
-  String? _lastStreamedContent;
 
   /// Extract all tool calls from a non-streaming response.
   List<ToolCallRequest> _extractToolCalls(Map<String, dynamic> data) {
@@ -233,7 +261,11 @@ class OpenAiCompatibleProvider implements AiProvider {
   }
 
   Map<String, dynamic> _parseArgs(String s) {
-    try { return jsonDecode(s) as Map<String, dynamic>; } catch (_) { return {}; }
+    try {
+      return jsonDecode(s) as Map<String, dynamic>;
+    } catch (_) {
+      return {};
+    }
   }
 
   /// Parse a non-streaming response.
@@ -254,14 +286,18 @@ class OpenAiCompatibleProvider implements AiProvider {
   }
 
   @override
-  Future<List<AiModel>> fetchModels({required String baseUrl, required String apiKey}) async {
+  Future<List<AiModel>> fetchModels(
+      {required String baseUrl, required String apiKey}) async {
     final url = Uri.parse('$baseUrl/models');
     try {
-      final response = await _httpClient.get(url, headers: {'Authorization': 'Bearer $apiKey'});
+      final response = await _httpClient
+          .get(url, headers: {'Authorization': 'Bearer $apiKey'});
       if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        final data =
+            jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
         return (data['data'] as List<dynamic>? ?? [])
-            .map((m) => AiModel.fromJson(m as Map<String, dynamic>)).toList();
+            .map((m) => AiModel.fromJson(m as Map<String, dynamic>))
+            .toList();
       }
     } catch (_) {}
     return [];
@@ -271,12 +307,24 @@ class OpenAiCompatibleProvider implements AiProvider {
   Future<ConnectionTestResult> testConnection(AiSettings settings) async {
     final url = Uri.parse('${settings.baseUrl}/chat/completions');
     try {
-      final response = await http.post(url,
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $apiKey'},
-        body: jsonEncode({'model': settings.model, 'messages': [{'role': 'user', 'content': 'hi'}], 'max_tokens': 10}),
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $apiKey'
+        },
+        body: jsonEncode({
+          'model': settings.model,
+          'messages': [
+            {'role': 'user', 'content': 'hi'}
+          ],
+          'max_tokens': 10
+        }),
       );
-      if (response.statusCode == 200) return const ConnectionTestResult(success: true, message: '连接成功喵~ ✨');
-      return ConnectionTestResult(success: false, message: '服务器返回 HTTP ${response.statusCode}');
+      if (response.statusCode == 200)
+        return const ConnectionTestResult(success: true, message: '连接成功喵~ ✨');
+      return ConnectionTestResult(
+          success: false, message: '服务器返回 HTTP ${response.statusCode}');
     } catch (e) {
       return ConnectionTestResult(success: false, message: '无法连接到服务器: $e');
     }
@@ -289,25 +337,40 @@ class OpenAiCompatibleProvider implements AiProvider {
     required List<Map<String, String>> oldMessages,
   }) async {
     final url = Uri.parse('${_settings.baseUrl}/chat/completions');
-    final response = await _httpClient.post(url, headers: _headers(), body: jsonEncode({
-      'model': _settings.model,
-      'messages': [
-        {'role': 'system', 'content': '你是一个上下文压缩引擎。请将以下对话历史压缩为200-500字的简洁摘要，保留关键叙事事实、好感度变化、NPC出场和Flag设定。使用客观第三人称。'},
-        {'role': 'user', 'content': oldMessages.map((m) => '${m['role']}: ${m['content']}').join('\n\n')},
-      ],
-      'temperature': 0.3,
-      'max_tokens': 1024,
-    }));
+    final response = await _httpClient.post(url,
+        headers: _headers(),
+        body: jsonEncode({
+          'model': _settings.model,
+          'messages': [
+            {
+              'role': 'system',
+              'content':
+                  '你是一个上下文压缩引擎。请将以下对话历史压缩为200-500字的简洁摘要，保留关键叙事事实、好感度变化、NPC出场和Flag设定。使用客观第三人称。'
+            },
+            {
+              'role': 'user',
+              'content': oldMessages
+                  .map((m) => '${m['role']}: ${m['content']}')
+                  .join('\n\n')
+            },
+          ],
+          'temperature': 0.3,
+          'max_tokens': 1024,
+        }));
     if (response.statusCode == 200) {
-      final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-      return (data['choices'] as List?)?.first['message']?['content'] as String? ?? '';
+      final data =
+          jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      return (data['choices'] as List?)?.first['message']?['content']
+              as String? ??
+          '';
     }
     throw Exception('压缩请求失败 HTTP ${response.statusCode}');
   }
 
   // ─── builders ───
 
-  List<Map<String, dynamic>> _buildMessages(AiTurnRequest request, {List<Map<String, dynamic>>? toolResults}) {
+  List<Map<String, dynamic>> _buildMessages(AiTurnRequest request,
+      {List<Map<String, dynamic>>? toolResults}) {
     final messages = <Map<String, dynamic>>[
       {'role': 'system', 'content': request.systemPrompt},
     ];
@@ -328,7 +391,8 @@ class OpenAiCompatibleProvider implements AiProvider {
     return messages;
   }
 
-  Map<String, dynamic> _buildBody(List<Map<String, dynamic>> messages, {required bool stream}) {
+  Map<String, dynamic> _buildBody(List<Map<String, dynamic>> messages,
+      {required bool stream}) {
     final body = <String, dynamic>{
       'model': _settings.model,
       'messages': messages,
@@ -352,8 +416,7 @@ class OpenAiCompatibleProvider implements AiProvider {
   }
 
   Map<String, String> _headers() => {
-    'Content-Type': 'application/json',
-    'Authorization': 'Bearer $apiKey',
-  };
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $apiKey',
+      };
 }
-

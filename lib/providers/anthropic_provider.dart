@@ -62,7 +62,8 @@ class AnthropicProvider implements AiProvider {
   static const _anthropicTools = [
     {
       'name': 'read_file',
-      'description': '读取故事叙述文件的当前内容。可用文件名: galgame-settings.md(世界观设定), galgame-npcs.md(NPC阵容), galgame-plot-outline.md(剧情大纲), galgame-progress.md(进度追踪)。可一次读取单个或多个文件',
+      'description':
+          '读取故事叙述文件的当前内容。可用文件名: galgame-settings.md(世界观设定), galgame-npcs.md(NPC阵容), galgame-plot-outline.md(剧情大纲), galgame-progress.md(进度追踪), memory.md(长期记忆)。可一次读取单个或多个文件',
       'input_schema': {
         'type': 'object',
         'properties': {
@@ -73,7 +74,8 @@ class AnthropicProvider implements AiProvider {
               'galgame-settings.md',
               'galgame-npcs.md',
               'galgame-plot-outline.md',
-              'galgame-progress.md'
+              'galgame-progress.md',
+              'memory.md'
             ],
           },
           'filenames': {
@@ -85,7 +87,8 @@ class AnthropicProvider implements AiProvider {
                 'galgame-settings.md',
                 'galgame-npcs.md',
                 'galgame-plot-outline.md',
-                'galgame-progress.md'
+                'galgame-progress.md',
+                'memory.md'
               ],
             },
           },
@@ -105,7 +108,8 @@ class AnthropicProvider implements AiProvider {
               'galgame-settings.md',
               'galgame-npcs.md',
               'galgame-plot-outline.md',
-              'galgame-progress.md'
+              'galgame-progress.md',
+              'memory.md'
             ],
           },
           'content': {
@@ -231,19 +235,18 @@ class AnthropicProvider implements AiProvider {
   Future<AiTurnResult> sendTurn(AiTurnRequest request) async {
     final url = _base.resolve('/v1/messages');
     final messages = _buildMessages(request, toolResults: request.toolResults);
-    final body = _buildBody(messages, stream: false,
-        systemPrompt: request.systemPrompt);
+    final body =
+        _buildBody(messages, stream: false, systemPrompt: request.systemPrompt);
 
     try {
-      final response =
-          await _httpClient.post(url, headers: _headers(), body: jsonEncode(body));
+      final response = await _httpClient.post(url,
+          headers: _headers(), body: jsonEncode(body));
       if (response.statusCode == 200) {
         final data =
             jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
         return _parseMessage(data);
       } else if (response.statusCode == 401 || response.statusCode == 403) {
-        throw AiAuthException(
-            'API Key验证失败 (HTTP ${response.statusCode})');
+        throw AiAuthException('API Key验证失败 (HTTP ${response.statusCode})');
       } else {
         throw AiNetworkException(
             '请求失败 (HTTP ${response.statusCode}): ${response.body}');
@@ -301,8 +304,8 @@ class AnthropicProvider implements AiProvider {
   Stream<AiStreamChunk> sendTurnStream(AiTurnRequest request) async* {
     final url = _base.resolve('/v1/messages');
     final messages = _buildMessages(request, toolResults: request.toolResults);
-    final body = _buildBody(messages, stream: true,
-        systemPrompt: request.systemPrompt);
+    final body =
+        _buildBody(messages, stream: true, systemPrompt: request.systemPrompt);
 
     final streamedResponse = await _httpClient.send(
       http.Request('POST', url)
@@ -383,8 +386,7 @@ class AnthropicProvider implements AiProvider {
 
           case 'message_delta':
             // Contains stop_reason and usage — no content to yield
-            final stopReason =
-                event['delta']?['stop_reason'] as String? ?? '';
+            final stopReason = event['delta']?['stop_reason'] as String? ?? '';
             if (stopReason == 'tool_use') {
               // Flush accumulated tool calls
               if (toolAccumulators.isNotEmpty) {
@@ -392,8 +394,7 @@ class AnthropicProvider implements AiProvider {
                 final indices = toolAccumulators.keys.toList()..sort();
                 for (final i in indices) {
                   final acc = toolAccumulators[i]!;
-                  final inputStr =
-                      (acc['input'] as StringBuffer).toString();
+                  final inputStr = (acc['input'] as StringBuffer).toString();
                   allToolCalls.add(ToolCallRequest(
                     id: acc['id'] as String,
                     name: acc['name'] as String,
@@ -442,7 +443,12 @@ class AnthropicProvider implements AiProvider {
             'model': settings.model,
             'max_tokens': 10,
             'messages': [
-              {'role': 'user', 'content': [{'type': 'text', 'text': 'hi'}]}
+              {
+                'role': 'user',
+                'content': [
+                  {'type': 'text', 'text': 'hi'}
+                ]
+              }
             ],
           }));
       if (response.statusCode == 200) {
@@ -451,8 +457,7 @@ class AnthropicProvider implements AiProvider {
       return ConnectionTestResult(
           success: false, message: '服务器返回 HTTP ${response.statusCode}');
     } catch (e) {
-      return ConnectionTestResult(
-          success: false, message: '无法连接到服务器: $e');
+      return ConnectionTestResult(success: false, message: '无法连接到服务器: $e');
     }
   }
 
@@ -480,13 +485,13 @@ class AnthropicProvider implements AiProvider {
     required List<Map<String, String>> oldMessages,
   }) async {
     final url = _base.resolve('/v1/messages');
-    final text = oldMessages
-        .map((m) => '${m['role']}: ${m['content']}')
-        .join('\n\n');
+    final text =
+        oldMessages.map((m) => '${m['role']}: ${m['content']}').join('\n\n');
     final body = {
       'model': _settings.model,
       'max_tokens': 1024,
-      'system': '你是一个上下文压缩引擎。请将以下对话历史压缩为200-500字的简洁摘要，保留关键叙事事实、好感度变化、NPC出场和Flag设定。使用客观第三人称。',
+      'system':
+          '你是一个上下文压缩引擎。请将以下对话历史压缩为200-500字的简洁摘要，保留关键叙事事实、好感度变化、NPC出场和Flag设定。使用客观第三人称。',
       'messages': [
         {
           'role': 'user',
@@ -497,8 +502,8 @@ class AnthropicProvider implements AiProvider {
       ],
     };
 
-    final response =
-        await _httpClient.post(url, headers: _headers(), body: jsonEncode(body));
+    final response = await _httpClient.post(url,
+        headers: _headers(), body: jsonEncode(body));
     if (response.statusCode == 200) {
       final data =
           jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;

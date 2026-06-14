@@ -866,6 +866,12 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
   late final GeneratedColumn<String> rawPayload = GeneratedColumn<String>(
       'raw_payload', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _reasoningContentMeta =
+      const VerificationMeta('reasoningContent');
+  @override
+  late final GeneratedColumn<String> reasoningContent = GeneratedColumn<String>(
+      'reasoning_content', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _createdAtMeta =
       const VerificationMeta('createdAt');
   @override
@@ -873,8 +879,16 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
       'created_at', aliasedName, false,
       type: DriftSqlType.dateTime, requiredDuringInsert: true);
   @override
-  List<GeneratedColumn> get $columns =>
-      [id, conversationId, role, speaker, content, rawPayload, createdAt];
+  List<GeneratedColumn> get $columns => [
+        id,
+        conversationId,
+        role,
+        speaker,
+        content,
+        rawPayload,
+        reasoningContent,
+        createdAt
+      ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -918,6 +932,12 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
           rawPayload.isAcceptableOrUnknown(
               data['raw_payload']!, _rawPayloadMeta));
     }
+    if (data.containsKey('reasoning_content')) {
+      context.handle(
+          _reasoningContentMeta,
+          reasoningContent.isAcceptableOrUnknown(
+              data['reasoning_content']!, _reasoningContentMeta));
+    }
     if (data.containsKey('created_at')) {
       context.handle(_createdAtMeta,
           createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
@@ -945,6 +965,8 @@ class $MessagesTable extends Messages with TableInfo<$MessagesTable, Message> {
           .read(DriftSqlType.string, data['${effectivePrefix}content'])!,
       rawPayload: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}raw_payload']),
+      reasoningContent: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}reasoning_content']),
       createdAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
     );
@@ -963,6 +985,7 @@ class Message extends DataClass implements Insertable<Message> {
   final String? speaker;
   final String content;
   final String? rawPayload;
+  final String? reasoningContent;
   final DateTime createdAt;
   const Message(
       {required this.id,
@@ -971,6 +994,7 @@ class Message extends DataClass implements Insertable<Message> {
       this.speaker,
       required this.content,
       this.rawPayload,
+      this.reasoningContent,
       required this.createdAt});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -984,6 +1008,9 @@ class Message extends DataClass implements Insertable<Message> {
     map['content'] = Variable<String>(content);
     if (!nullToAbsent || rawPayload != null) {
       map['raw_payload'] = Variable<String>(rawPayload);
+    }
+    if (!nullToAbsent || reasoningContent != null) {
+      map['reasoning_content'] = Variable<String>(reasoningContent);
     }
     map['created_at'] = Variable<DateTime>(createdAt);
     return map;
@@ -1001,6 +1028,9 @@ class Message extends DataClass implements Insertable<Message> {
       rawPayload: rawPayload == null && nullToAbsent
           ? const Value.absent()
           : Value(rawPayload),
+      reasoningContent: reasoningContent == null && nullToAbsent
+          ? const Value.absent()
+          : Value(reasoningContent),
       createdAt: Value(createdAt),
     );
   }
@@ -1015,6 +1045,7 @@ class Message extends DataClass implements Insertable<Message> {
       speaker: serializer.fromJson<String?>(json['speaker']),
       content: serializer.fromJson<String>(json['content']),
       rawPayload: serializer.fromJson<String?>(json['rawPayload']),
+      reasoningContent: serializer.fromJson<String?>(json['reasoningContent']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
     );
   }
@@ -1028,6 +1059,7 @@ class Message extends DataClass implements Insertable<Message> {
       'speaker': serializer.toJson<String?>(speaker),
       'content': serializer.toJson<String>(content),
       'rawPayload': serializer.toJson<String?>(rawPayload),
+      'reasoningContent': serializer.toJson<String?>(reasoningContent),
       'createdAt': serializer.toJson<DateTime>(createdAt),
     };
   }
@@ -1039,6 +1071,7 @@ class Message extends DataClass implements Insertable<Message> {
           Value<String?> speaker = const Value.absent(),
           String? content,
           Value<String?> rawPayload = const Value.absent(),
+          Value<String?> reasoningContent = const Value.absent(),
           DateTime? createdAt}) =>
       Message(
         id: id ?? this.id,
@@ -1047,6 +1080,9 @@ class Message extends DataClass implements Insertable<Message> {
         speaker: speaker.present ? speaker.value : this.speaker,
         content: content ?? this.content,
         rawPayload: rawPayload.present ? rawPayload.value : this.rawPayload,
+        reasoningContent: reasoningContent.present
+            ? reasoningContent.value
+            : this.reasoningContent,
         createdAt: createdAt ?? this.createdAt,
       );
   Message copyWithCompanion(MessagesCompanion data) {
@@ -1060,6 +1096,9 @@ class Message extends DataClass implements Insertable<Message> {
       content: data.content.present ? data.content.value : this.content,
       rawPayload:
           data.rawPayload.present ? data.rawPayload.value : this.rawPayload,
+      reasoningContent: data.reasoningContent.present
+          ? data.reasoningContent.value
+          : this.reasoningContent,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
     );
   }
@@ -1073,14 +1112,15 @@ class Message extends DataClass implements Insertable<Message> {
           ..write('speaker: $speaker, ')
           ..write('content: $content, ')
           ..write('rawPayload: $rawPayload, ')
+          ..write('reasoningContent: $reasoningContent, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(
-      id, conversationId, role, speaker, content, rawPayload, createdAt);
+  int get hashCode => Object.hash(id, conversationId, role, speaker, content,
+      rawPayload, reasoningContent, createdAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1091,6 +1131,7 @@ class Message extends DataClass implements Insertable<Message> {
           other.speaker == this.speaker &&
           other.content == this.content &&
           other.rawPayload == this.rawPayload &&
+          other.reasoningContent == this.reasoningContent &&
           other.createdAt == this.createdAt);
 }
 
@@ -1101,6 +1142,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
   final Value<String?> speaker;
   final Value<String> content;
   final Value<String?> rawPayload;
+  final Value<String?> reasoningContent;
   final Value<DateTime> createdAt;
   const MessagesCompanion({
     this.id = const Value.absent(),
@@ -1109,6 +1151,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     this.speaker = const Value.absent(),
     this.content = const Value.absent(),
     this.rawPayload = const Value.absent(),
+    this.reasoningContent = const Value.absent(),
     this.createdAt = const Value.absent(),
   });
   MessagesCompanion.insert({
@@ -1118,6 +1161,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     this.speaker = const Value.absent(),
     required String content,
     this.rawPayload = const Value.absent(),
+    this.reasoningContent = const Value.absent(),
     required DateTime createdAt,
   })  : conversationId = Value(conversationId),
         role = Value(role),
@@ -1130,6 +1174,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     Expression<String>? speaker,
     Expression<String>? content,
     Expression<String>? rawPayload,
+    Expression<String>? reasoningContent,
     Expression<DateTime>? createdAt,
   }) {
     return RawValuesInsertable({
@@ -1139,6 +1184,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       if (speaker != null) 'speaker': speaker,
       if (content != null) 'content': content,
       if (rawPayload != null) 'raw_payload': rawPayload,
+      if (reasoningContent != null) 'reasoning_content': reasoningContent,
       if (createdAt != null) 'created_at': createdAt,
     });
   }
@@ -1150,6 +1196,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       Value<String?>? speaker,
       Value<String>? content,
       Value<String?>? rawPayload,
+      Value<String?>? reasoningContent,
       Value<DateTime>? createdAt}) {
     return MessagesCompanion(
       id: id ?? this.id,
@@ -1158,6 +1205,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
       speaker: speaker ?? this.speaker,
       content: content ?? this.content,
       rawPayload: rawPayload ?? this.rawPayload,
+      reasoningContent: reasoningContent ?? this.reasoningContent,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -1183,6 +1231,9 @@ class MessagesCompanion extends UpdateCompanion<Message> {
     if (rawPayload.present) {
       map['raw_payload'] = Variable<String>(rawPayload.value);
     }
+    if (reasoningContent.present) {
+      map['reasoning_content'] = Variable<String>(reasoningContent.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -1198,6 +1249,7 @@ class MessagesCompanion extends UpdateCompanion<Message> {
           ..write('speaker: $speaker, ')
           ..write('content: $content, ')
           ..write('rawPayload: $rawPayload, ')
+          ..write('reasoningContent: $reasoningContent, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -2914,6 +2966,7 @@ typedef $$MessagesTableCreateCompanionBuilder = MessagesCompanion Function({
   Value<String?> speaker,
   required String content,
   Value<String?> rawPayload,
+  Value<String?> reasoningContent,
   required DateTime createdAt,
 });
 typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
@@ -2923,6 +2976,7 @@ typedef $$MessagesTableUpdateCompanionBuilder = MessagesCompanion Function({
   Value<String?> speaker,
   Value<String> content,
   Value<String?> rawPayload,
+  Value<String?> reasoningContent,
   Value<DateTime> createdAt,
 });
 
@@ -2953,6 +3007,10 @@ class $$MessagesTableFilterComposer
 
   ColumnFilters<String> get rawPayload => $composableBuilder(
       column: $table.rawPayload, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get reasoningContent => $composableBuilder(
+      column: $table.reasoningContent,
+      builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnFilters(column));
@@ -2986,6 +3044,10 @@ class $$MessagesTableOrderingComposer
   ColumnOrderings<String> get rawPayload => $composableBuilder(
       column: $table.rawPayload, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get reasoningContent => $composableBuilder(
+      column: $table.reasoningContent,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnOrderings(column));
 }
@@ -3016,6 +3078,9 @@ class $$MessagesTableAnnotationComposer
 
   GeneratedColumn<String> get rawPayload => $composableBuilder(
       column: $table.rawPayload, builder: (column) => column);
+
+  GeneratedColumn<String> get reasoningContent => $composableBuilder(
+      column: $table.reasoningContent, builder: (column) => column);
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -3050,6 +3115,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             Value<String?> speaker = const Value.absent(),
             Value<String> content = const Value.absent(),
             Value<String?> rawPayload = const Value.absent(),
+            Value<String?> reasoningContent = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
           }) =>
               MessagesCompanion(
@@ -3059,6 +3125,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             speaker: speaker,
             content: content,
             rawPayload: rawPayload,
+            reasoningContent: reasoningContent,
             createdAt: createdAt,
           ),
           createCompanionCallback: ({
@@ -3068,6 +3135,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             Value<String?> speaker = const Value.absent(),
             required String content,
             Value<String?> rawPayload = const Value.absent(),
+            Value<String?> reasoningContent = const Value.absent(),
             required DateTime createdAt,
           }) =>
               MessagesCompanion.insert(
@@ -3077,6 +3145,7 @@ class $$MessagesTableTableManager extends RootTableManager<
             speaker: speaker,
             content: content,
             rawPayload: rawPayload,
+            reasoningContent: reasoningContent,
             createdAt: createdAt,
           ),
           withReferenceMapper: (p0) => p0

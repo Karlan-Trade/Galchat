@@ -23,7 +23,7 @@ class BackupService {
     final exportJson = {
       'schema_version': _currentSchemaVersion,
       'exported_at': DateTime.now().toIso8601String(),
-      'app_version': '0.7.1',
+      'app_version': '0.8.3',
       'characters': data.characters.map(_characterToJson).toList(),
       'conversations': data.conversations.map(_conversationToJson).toList(),
       'messages': data.messages.map(_messageToJson).toList(),
@@ -207,6 +207,7 @@ class BackupService {
         'speaker': m.speaker,
         'content': m.content,
         'raw_payload': m.rawPayload,
+        'reasoning_content': m.reasoningContent,
         'created_at': m.createdAt.toIso8601String(),
       };
 
@@ -217,6 +218,7 @@ class BackupService {
         speaker: j['speaker'] as String?,
         content: j['content'] as String,
         rawPayload: j['raw_payload'] as String?,
+        reasoningContent: j['reasoning_content'] as String?,
         createdAt: DateTime.parse(j['created_at'] as String),
       );
 

@@ -6,7 +6,8 @@ class NarrativeEditorPage extends ConsumerStatefulWidget {
   const NarrativeEditorPage({super.key});
 
   @override
-  ConsumerState<NarrativeEditorPage> createState() => _NarrativeEditorPageState();
+  ConsumerState<NarrativeEditorPage> createState() =>
+      _NarrativeEditorPageState();
 }
 
 class _NarrativeEditorPageState extends ConsumerState<NarrativeEditorPage>
@@ -47,7 +48,10 @@ class _NarrativeEditorPageState extends ConsumerState<NarrativeEditorPage>
     await service.writeFile(name, _controllers[name]!.text);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$name 已保存喵~'), backgroundColor: Colors.green, duration: const Duration(seconds: 1)),
+        SnackBar(
+            content: Text('$name 已保存喵~'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 1)),
       );
     }
   }
@@ -65,7 +69,9 @@ class _NarrativeEditorPageState extends ConsumerState<NarrativeEditorPage>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     if (!_loaded) {
-      return Scaffold(appBar: AppBar(title: const Text('叙事文件')), body: const Center(child: CircularProgressIndicator()));
+      return Scaffold(
+          appBar: AppBar(title: const Text('叙事文件')),
+          body: const Center(child: CircularProgressIndicator()));
     }
 
     return Scaffold(
@@ -75,7 +81,14 @@ class _NarrativeEditorPageState extends ConsumerState<NarrativeEditorPage>
           controller: _tabController,
           isScrollable: true,
           tabAlignment: TabAlignment.start,
-          tabs: _tabs.map((t) => Tab(child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(t.icon, size: 16), const SizedBox(width: 6), Text(t.label)]))).toList(),
+          tabs: _tabs
+              .map((t) => Tab(
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(t.icon, size: 16),
+                    const SizedBox(width: 6),
+                    Text(t.label)
+                  ])))
+              .toList(),
         ),
         actions: [
           TextButton.icon(
@@ -93,17 +106,28 @@ class _NarrativeEditorPageState extends ConsumerState<NarrativeEditorPage>
               // File path indicator
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                color:
+                    theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
                 child: Row(children: [
-                  Icon(Icons.description_outlined, size: 14, color: theme.colorScheme.onSurface.withOpacity(0.5)),
+                  Icon(Icons.description_outlined,
+                      size: 14,
+                      color: theme.colorScheme.onSurface.withOpacity(0.5)),
                   const SizedBox(width: 6),
-                  Expanded(child: Text(t.name, style: TextStyle(fontSize: 12, fontFamily: 'monospace', color: theme.colorScheme.onSurface.withOpacity(0.5)))),
+                  Expanded(
+                      child: Text(t.name,
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontFamily: 'monospace',
+                              color: theme.colorScheme.onSurface
+                                  .withOpacity(0.5)))),
                   TextButton.icon(
                     onPressed: () => _save(t.name),
                     icon: const Icon(Icons.save, size: 14),
                     label: const Text('保存', style: TextStyle(fontSize: 12)),
-                    style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                    style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact),
                   ),
                 ]),
               ),
@@ -113,7 +137,8 @@ class _NarrativeEditorPageState extends ConsumerState<NarrativeEditorPage>
                   maxLines: null,
                   expands: true,
                   textAlignVertical: TextAlignVertical.top,
-                  style: const TextStyle(fontSize: 14, fontFamily: 'monospace', height: 1.6),
+                  style: const TextStyle(
+                      fontSize: 14, fontFamily: 'monospace', height: 1.6),
                   decoration: const InputDecoration(
                     border: InputBorder.none,
                     contentPadding: EdgeInsets.all(16),

@@ -43,6 +43,7 @@ void main() {
             'speaker': '初雪',
             'content': '初次见面喵~',
             'raw_payload': null,
+            'reasoning_content': '我需要先观察主人。',
             'created_at': '2026-06-09T11:00:01',
           },
           {
@@ -52,6 +53,7 @@ void main() {
             'speaker': null,
             'content': '你好！',
             'raw_payload': null,
+            'reasoning_content': null,
             'created_at': '2026-06-09T11:00:30',
           },
         ],
@@ -130,7 +132,8 @@ void main() {
         return false;
       }
 
-      expect(hasApiKey(json), false, reason: 'Backup JSON must not contain API key');
+      expect(hasApiKey(json), false,
+          reason: 'Backup JSON must not contain API key');
     });
 
     test('ai_settings only contains non-secret fields', () {
@@ -160,7 +163,8 @@ void main() {
 
     test('character has all required fields', () {
       final json = createValidExportJson();
-      final character = (json['characters'] as List).first as Map<String, dynamic>;
+      final character =
+          (json['characters'] as List).first as Map<String, dynamic>;
 
       expect(character['id'], isA<int>());
       expect(character['name'], isA<String>());
@@ -179,6 +183,14 @@ void main() {
       final roles = messages.map((m) => (m as Map)['role'] as String).toSet();
       expect(roles.contains('user'), true);
       expect(roles.contains('assistant'), true);
+    });
+
+    test('message preserves optional reasoning content', () {
+      final json = createValidExportJson();
+      final messages = json['messages'] as List;
+
+      expect((messages.first as Map)['reasoning_content'], isA<String>());
+      expect((messages.last as Map)['reasoning_content'], isNull);
     });
 
     test('choice has required fields', () {
@@ -204,7 +216,8 @@ void main() {
 
     test('archived_at can be null', () {
       final json = createValidExportJson();
-      final conv = (json['conversations'] as List).first as Map<String, dynamic>;
+      final conv =
+          (json['conversations'] as List).first as Map<String, dynamic>;
 
       expect(conv['archived_at'], isNull);
     });

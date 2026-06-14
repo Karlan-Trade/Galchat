@@ -22,7 +22,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -36,6 +36,11 @@ class AppDatabase extends _$AppDatabase {
             // Drop and recreate — ai_settings is a single-row config table.
             await customStatement('DROP TABLE IF EXISTS ai_settings');
             await m.create(aiSettings);
+          }
+          if (from < 7) {
+            await customStatement(
+              'ALTER TABLE messages ADD COLUMN reasoning_content TEXT',
+            );
           }
         },
       );

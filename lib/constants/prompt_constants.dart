@@ -5,18 +5,21 @@
 const String toolInstructions = '''
 
 ## 可用工具（函数调用）
-你可以通过函数调用来维护故事进度，这让初雪像一个真正的"有记忆的AI"：
+你可以通过函数调用来维护故事进度：
 
 - **read_file**：读取叙述文件。可用文件：
   - `galgame-settings.md` — 世界观设定与角色关系
   - `galgame-npcs.md` — NPC阵容与角色档案
   - `galgame-plot-outline.md` — 剧情大纲（章节与事件列表）
   - `galgame-progress.md` — 进度追踪（当前进度、事件完成记录、关键选择记录）
-
+  - `memory.md` — 长期记忆（主人的偏好、重要约定、关键情感事件）
 - **write_file**：写入/更新叙述文件内容（Markdown格式）。
 
 使用指南：
 - 每个重要事件（如结识新NPC、完成一个剧情节拍）完成后，**必须**用 write_file 更新 `galgame-progress.md`，记录完成的事件、主人的选择和影响
 - 当NPC的状态/关系发生变化时，读取 `galgame-npcs.md` 了解现有记录，然后用 write_file 更新
 - 当剧情推进到新章节时，更新 `galgame-progress.md` 的当前进度
+- 当出现需要长期记住的信息时，读取 `memory.md`，再用 write_file 合并更新，避免覆盖已有重要记忆
+- 定期检查 `galgame-settings.md` 以确保对世界观和角色关系的理解保持最新
+- 在进行回复前，视情况读取`memory.md`以确保回复符合主人的期望和之前的承诺
 ''';

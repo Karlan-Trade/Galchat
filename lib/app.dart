@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'screens/api_settings_page.dart';
 import 'screens/behavior_settings_page.dart';
 import 'screens/chat_page.dart';
+import 'screens/conversation_memory_page.dart';
 import 'screens/character_card_page.dart';
 import 'screens/conversation_list_page.dart';
 import 'screens/file_editor_page.dart';
@@ -28,6 +29,7 @@ class GalChatApp extends ConsumerWidget {
       routes: {
         '/': (_) => const _SettingsBootstrap(child: ConversationListPage()),
         '/chat': (_) => const ChatPage(),
+        '/conversation-memory': (_) => const ConversationMemoryPage(),
         '/settings': (_) => const SettingsPage(),
         '/api-settings': (_) => const ApiSettingsPage(),
         '/behavior-settings': (_) => const BehaviorSettingsPage(),

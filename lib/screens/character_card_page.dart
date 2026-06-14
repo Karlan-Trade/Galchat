@@ -50,7 +50,8 @@ class _CharacterCardPageState extends ConsumerState<CharacterCardPage> {
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('角色卡已保存喵~ ✨'), backgroundColor: Colors.green),
+        const SnackBar(
+            content: Text('角色卡已保存喵~ ✨'), backgroundColor: Colors.green),
       );
     }
   }
@@ -62,7 +63,9 @@ class _CharacterCardPageState extends ConsumerState<CharacterCardPage> {
         title: const Text('恢复默认'),
         content: const Text('确定要恢复为默认的初雪人格提示词吗？你的修改将会丢失喵...'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
@@ -94,7 +97,10 @@ class _CharacterCardPageState extends ConsumerState<CharacterCardPage> {
         title: const Text('角色卡编辑'),
         actions: [
           TextButton(onPressed: _resetToDefault, child: const Text('恢复默认')),
-          TextButton.icon(onPressed: _save, icon: const Icon(Icons.save, size: 18), label: const Text('保存')),
+          TextButton.icon(
+              onPressed: _save,
+              icon: const Icon(Icons.save, size: 18),
+              label: const Text('保存')),
         ],
       ),
       body: ListView(
@@ -105,30 +111,37 @@ class _CharacterCardPageState extends ConsumerState<CharacterCardPage> {
               radius: 40,
               backgroundColor: theme.colorScheme.primaryContainer,
               child: Text(
-                _character?.displayName.isNotEmpty == true ? _character!.displayName[0] : '？',
-                style: TextStyle(fontSize: 28, color: theme.colorScheme.onPrimaryContainer),
+                _character?.displayName.isNotEmpty == true
+                    ? _character!.displayName[0]
+                    : '？',
+                style: TextStyle(
+                    fontSize: 28, color: theme.colorScheme.onPrimaryContainer),
               ),
             ),
           ),
           const SizedBox(height: 24),
-
-          const _SectionHeader(title: '人格提示词 (System Prompt)', icon: Icons.psychology_outlined),
+          const _SectionHeader(title: '人格提示词', icon: Icons.psychology_outlined),
           const SizedBox(height: 4),
           Text(
             '这是初雪的核心人格设定，决定了她的性格、说话方式和行为规则。工具调用指令已固化在系统提示词中，可在"提示词预览"查看完整内容喵~',
-            style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface.withOpacity(0.6)),
+            style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.onSurface.withOpacity(0.6)),
           ),
           const SizedBox(height: 8),
           TextField(
             controller: _systemPromptController,
             maxLines: null,
             minLines: 12,
-            style: const TextStyle(fontSize: 13, fontFamily: 'monospace', height: 1.5),
+            style: const TextStyle(
+                fontSize: 13, fontFamily: 'monospace', height: 1.5),
             decoration: InputDecoration(
               border: const OutlineInputBorder(),
               contentPadding: const EdgeInsets.all(12),
               hintText: '输入角色的人格设定...',
-              hintStyle: TextStyle(fontSize: 13, color: theme.colorScheme.onSurface.withOpacity(0.3)),
+              hintStyle: TextStyle(
+                  fontSize: 13,
+                  color: theme.colorScheme.onSurface.withOpacity(0.3)),
             ),
           ),
           const SizedBox(height: 32),
@@ -150,7 +163,11 @@ class _SectionHeader extends StatelessWidget {
       children: [
         Icon(icon, size: 18, color: theme.colorScheme.primary),
         const SizedBox(width: 8),
-        Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: theme.colorScheme.primary)),
+        Text(title,
+            style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.primary)),
       ],
     );
   }
