@@ -137,5 +137,5 @@ lib/
 </p>
 
 <p align="center">
-  <sub>本项目完全由 AI Agent 完成 · DeepSeek V4 Pro 70% · Claude Opus 4.8 20% · ChatGPT 5.5 10% </sub>
+  <sub>本项目完全由 AI Agent 完成 · DeepSeek V4 Pro 60% · Claude Opus 4.8 15% · ChatGPT 5.5 25% </sub>
 </p>
