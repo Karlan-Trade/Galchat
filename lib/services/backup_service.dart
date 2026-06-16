@@ -23,7 +23,7 @@ class BackupService {
     final exportJson = {
       'schema_version': _currentSchemaVersion,
       'exported_at': DateTime.now().toIso8601String(),
-      'app_version': '0.8.5',
+      'app_version': '0.8.6',
       'characters': data.characters.map(_characterToJson).toList(),
       'conversations': data.conversations.map(_conversationToJson).toList(),
       'messages': data.messages.map(_messageToJson).toList(),

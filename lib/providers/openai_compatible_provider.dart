@@ -345,17 +345,31 @@ class OpenAiCompatibleProvider implements AiProvider {
             {
               'role': 'system',
               'content':
-                  '你是一个上下文压缩引擎。请将以下对话历史压缩为200-500字的简洁摘要，保留关键叙事事实、好感度变化、NPC出场和Flag设定。使用客观第三人称。'
+                  '你是一个上下文压缩引擎。你的唯一任务是生成摘要，绝对禁止续写对话、扮演角色或输出任何非摘要内容。\n\n'
+                  '## 绝对规则\n'
+                  '- 只输出摘要本身，不加任何前缀、后缀、解释或问候语\n'
+                  '- 使用客观第三人称叙述（如"用户问了…""初雪回答了…"），不要使用第一人称\n'
+                  '- 严禁续写对话内容或生成新的对话轮次\n\n'
+                  '## 要求\n'
+                  '将 <history> 标签内的对话历史压缩为200-500字的简洁摘要，保留：\n'
+                  '- 关键叙事事实和情节进展\n'
+                  '- 好感度变化\n'
+                  '- NPC出场\n'
+                  '- Flag设定和状态变更'
             },
             {
               'role': 'user',
-              'content': oldMessages
-                  .map((m) => '${m['role']}: ${m['content']}')
-                  .join('\n\n')
+              'content':
+                  '<history>\n${oldMessages.map((m) => '${m['role']}: ${m['content']}').join('\n\n')}\n</history>\n\n'
+                  '请现在输出摘要：'
+            },
+            {
+              'role': 'assistant',
+              'content': '摘要：',
             },
           ],
-          'temperature': 0.3,
-          'max_tokens': 1024,
+          'temperature': _settings.temperature,
+          'max_tokens': _settings.maxTokens,
         }));
     if (response.statusCode == 200) {
       final data =

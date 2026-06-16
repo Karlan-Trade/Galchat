@@ -2,7 +2,7 @@ name: galchat
 description: AI-powered Galgame-style chat app. Chat with 初雪, an android catgirl
   in a modern campus setting, with branching choices and affection tracking.
 publish_to: 'none'
-version: 0.8.5+54
+version: 0.8.6+55
 
 environment:
   sdk: ^3.4.0
